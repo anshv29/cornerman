@@ -11,7 +11,7 @@
 - Every kernel and dataset we create must be private. The push helper checks this in code before anything is uploaded.
 
 ## Current spend
-$0.00 of the $60 cap. See `costs.md`.
+$0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs.md`.
 
 ## Done
 
@@ -45,6 +45,10 @@ Ansh signed off on Tier 0 and started Tier 1 on 2026-10-17.
 4. Kaggle job scaffolding in `kaggle/`: resumable per-fight jobs, raw video deleted after each fight, every kernel and dataset private.
 5. Real ingest, shots, tracking, identity and pose on 5 fights, with overlay videos kept local.
 6. MLflow comes later, before the first real model fit (Phase 4).
+
+## Later (noted 2026-10-17)
+- **More amateur sources before Tier 2.** Only 18 of 125 fighters have 2+ fights in the IMMAF data. Per-fighter models need depth, so Tier 2 (scaling to 1000+ fights) must add more public amateur sources with repeat fighters. Same rules apply: adult bouts only, no pro promotion broadcasts.
+- **Fight results before Tier 3.** Result, method, round/time and weight class are empty because IMMAF's YouTube descriptions don't include them. Scrape them from IMMAF's website (check its terms first) before Tier 3, where the simulator and Elo baseline need outcomes.
 
 ## Blocked
 - Nothing blocking. Pushing derived data off the laptop waits on a DVC remote, which Ansh has said can wait.

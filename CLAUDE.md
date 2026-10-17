@@ -20,6 +20,9 @@ Creating accounts, logging in, API tokens, and loading prepaid GPU credit. When 
 - then keep working on anything that isn't blocked.
 Known ones coming up: Kaggle account with phone verification (needed for GPU) and its API token, a GitHub repo.
 
+## Money
+- Hard cap: $50 total for GPU time and hosted APIs. Ask Ansh before spending anything at all, even one dollar. Free compute (Kaggle, Colab) doesn't need asking. Log everything in costs.md.
+
 ## Never
 - Add a pay-as-you-go API key or anything that can auto-bill.
 - Commit or upload video files.

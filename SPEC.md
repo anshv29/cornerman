@@ -25,7 +25,7 @@ The computer vision is plumbing. The resume value is the modeling: hierarchical 
 4. Every perception component gets a measured accuracy number on the automated gold set (Phase 2). No "looks right" checks.
 5. Before choosing any model (detector, tracker, pose, VLM), check what's current and pick the best open-weight option that fits the GPU. Pin versions. Log the choice and why in `DECISIONS.md`.
 6. Plain READMEs and docs. No marketing language.
-7. Budget: the agent runs on Ansh's Claude subscription, which is separate. GPU time and any hosted APIs are capped at $60 USD total. Prefer free compute. Never add a pay-as-you-go API key or anything that can auto-bill. Paid GPU only from prepaid credit Ansh already loaded. Log every dollar in `costs.md`.
+7. Budget: the agent runs on Ansh's Claude subscription, which is separate. GPU time and any hosted APIs are capped at $50 USD total. Ask Ansh before spending any money at all, even one dollar. Prefer free compute. Never add a pay-as-you-go API key or anything that can auto-bill. Paid GPU only from prepaid credit Ansh already loaded. Log every dollar in `costs.md`.
 8. Ansh does not label footage. All labeling, including evaluation data, is automated.
 9. Token discipline: never pull video frames into your own context except a handful for debugging. All video processing happens in code on the GPU. Pipeline code never calls Claude or any paid model to label footage.
 10. Scale only after a pilot: full pipeline on 5 fights, check numbers, then 50, then go big.
@@ -222,7 +222,7 @@ Tier 4, ship it
 
 ## When to stop and ask Ansh
 - Any taxonomy change.
-- GPU/API spend reaching $40 (ask before going further), never past $60.
+- Before any spend at all on GPU or APIs (every dollar needs Ansh's OK first). Never past $50 total.
 - Free GPU quota exhausted and the next step needs paid GPU.
 - A result that contradicts an earlier one in a way you can't explain.
 - End of each tier, with a short summary of what works, the numbers, and what's shaky.
