@@ -13,10 +13,4 @@ mlruns/
 .ruff_cache/
 .hypothesis/
 
-# Everything under data/ stays local except the synthetic fixtures, DVC pointer
-# files and this folder's .gitignore. fights.csv, fighters.csv, raw video and
-# anything else that could hold real fighter names can't be committed.
-/data/*
-!/data/fixtures/
-!/data/.gitignore
-!/data/*.dvc
+# data/ is allow-list only. The rules live in data/.gitignore.

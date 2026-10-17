@@ -1,1 +1,10 @@
+# Everything in data/ stays local except the synthetic fixtures, DVC pointer
+# files and this file. fights.csv, fighters.csv, raw video and anything else
+# that could hold real fighter names can't be committed. The rules live here,
+# not in the root .gitignore, because DVC stops seeing data/*.dvc when the root
+# file ignores data/*.
+/*
+!/.gitignore
+!/fixtures/
+!/*.dvc
 /derived
