@@ -14,6 +14,7 @@ looks complete.
 import json
 import logging
 import shutil
+import time
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -44,6 +45,8 @@ class StageResult:
     fight_id: str
     stage: str
     status: Status
+    seconds: float = 0.0
+    """Wall time spent running the stage (0 when cached or skipped)."""
 
 
 def topo_sort(stages: Sequence[Stage]) -> list[Stage]:
@@ -201,6 +204,7 @@ def run(
                 out_dir=out_dir,
                 seed=stage_seed(settings.seed, fight_id, stage.name),
             )
+            t0 = time.perf_counter()
             try:
                 output_hashes[stage.name] = _run_stage(stage, ctx, key)
             except QuarantineError as e:
@@ -209,7 +213,8 @@ def run(
                 log.warning("%s/%s: quarantined: %s", fight_id, stage.name, e)
                 blocked = True
                 continue
-            results.append(StageResult(fight_id, stage.name, Status.RAN))
+            elapsed = time.perf_counter() - t0
+            results.append(StageResult(fight_id, stage.name, Status.RAN, elapsed))
             log.info("%s/%s: ran", fight_id, stage.name)
         if not blocked:
             # The fight now passes, so an old quarantine record is stale.
