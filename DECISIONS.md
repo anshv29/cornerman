@@ -21,7 +21,7 @@ The spec gives one example (ground-top pairs with ground-bottom). The full pairi
 - ground-scrambling with ground-scrambling
 - standing-opponent-hurt with standing-neutral or standing-cage-pressured. The hurt fighter has no "hurt" state of their own, so they stay in whichever standing state they're in.
 
-This only spells out what the locked taxonomy implies. It doesn't add or remove any states.
+This only spells out what the locked taxonomy implies. It doesn't add or remove any states. Ansh approved this pairing on 2026-10-17.
 
 ## 2026-10-17: A small custom DAG runner instead of Prefect or Dagster
 Considered: Prefect, Dagster, DVC pipelines (`dvc.yaml`), Make.
