@@ -68,3 +68,26 @@ The 5-fight pilot downloaded and processed its first two fights, then the next t
 The fallback is now the default (`cornerman kaggle batch --source dataset`): the laptop downloads the batch's videos into gitignored `data/raw/upload/`, uploads them as one private Kaggle dataset (`cornerman-videos`), and deletes the local copies right after the upload. The kernel attaches the dataset, `ensure_video` links each video from `/kaggle/input` instead of downloading, and `cornerman kaggle import` deletes the dataset once the results are home. Raw video exists only while a batch is being processed.
 Privacy for datasets is checked the same way as for kernels: the public flag is refused, and after upload we request the dataset with no credentials and fail if Kaggle answers 200 (a public dataset returns 200; a private or missing one returns 403 or 404). Kernel pushes now get the same anonymous check on top of reading their metadata back.
 `--source youtube` still exists for small batches, and the three blocked pilot fights are left for the next batch.
+
+## 2026-10-17: Speed pass: FP16, prefetching, bigger batches, one fight per GPU
+**Why.** The first pilot ran at 2080 s for an 826 s fight and 1901 s for an 836 s fight, 2.3 to 2.5 times slower than real time, on one of the machine's two T4s. That's about 0.42 minutes of footage per minute of Kaggle session, so 1000 fights (about 14,000 minutes of footage) would need roughly 550 session hours, far beyond the free weekly quota.
+**What changed.**
+- RF-DETR runs through `model.inference(compile=False, dtype=torch.float16)`, as its own log suggests. `compile=False` because batch sizes vary (the last batch of a fight is short).
+- ViTPose++ runs in FP16; heatmap peak finding stays in FP32 so FP16 only touches the network.
+- Detector batches go from 8 to 16 frames and pose batches from 16 to 32. Frames are decoded on a background thread, 64 frames ahead, while the GPU works.
+- Shot detection gets its 48x27 frames from a multi-threaded ffmpeg scale instead of decoding and resizing in Python.
+- The job runs one worker process per GPU, each pinned with `CUDA_VISIBLE_DEVICES` before torch loads, and deals fights out round-robin. Two fights at once is simpler than splitting one fight's frames across cards, and nothing is shared between them.
+- `perception.half` is part of the tracking and pose cache keys, so FP16 and FP32 outputs never get mixed in the cache.
+**Result** (same two fights, same T4 machine):
+
+| | FP32 pilot | Speed pass |
+|---|---|---|
+| Fight 1 (826 s of video) | 2080.6 s | 1363.1 s (1.53x faster) |
+| Fight 2 (836 s of video) | 1901.3 s | 1379.3 s (1.38x faster) |
+| Both fights, wall time | 3982 s, one after the other | 1448 s including install (2.75x faster) |
+| Footage minutes per session minute | 0.42 | 1.15 |
+
+Per fight, time is now 1.65 times the video length. Stage times for the speed pass: shots 210 to 301 s, tracking 546 to 598 s, pose 511 to 567 s, ingest and identity under 5 s. The pilot didn't log per-stage times, so we can't split the gain by stage.
+**Outputs still match** (`cornerman compare`, FP32 pilot vs FP16, both fights): same number of shots (36 and 19), 99.4 to 99.5% of boxes matched at IoU at least 0.5 with median IoU 0.997, 99.6% of matched boxes in the same track grouping, 97.3 to 98.1% with the same role, keypoints 0.24 px apart at the median and 2.8 to 3.2 px at the 95th percentile (on 1280x720 frames), with 92 to 93% within 2 px. The health metrics are unchanged to two decimals. The 2 to 3% role disagreement says identity is unstable on borderline tracklets: tiny box changes flip them between groups. That's a weakness of the identity step, not of FP16, and is noted for Phase 2.
+FP16 is now the default in `configs/kaggle_real.yaml`, and its outputs replace the FP32 pilot outputs in `data/derived/` (the FP32 ones are kept locally in `data/derived_fp32/` for reference).
+**Still too slow for 1000 fights on free quota:** about 200 session hours at 1.15 footage minutes per minute, around 7 weeks of Kaggle's weekly allowance. The next targets, by measured stage time: shots (4 to 5 minutes, mostly decoding every frame of a 50 fps video for a model that needs 48x27 images), and decoding each video three times (shots, tracking, pose). Tracking and pose could share one decode pass, and shot detection could use a lower frame rate or hardware decoding.

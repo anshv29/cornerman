@@ -284,3 +284,25 @@ A smoke test showed YouTube doesn't block downloads from Kaggle, so the job down
 1. *Why bother with metrics that aren't accuracy?* They're free, they cover every fight, and a fight with both fighters visible only 30% of the time is broken whatever the gold set says.
 2. *How does the role-switch count work?* Between consecutive frames, compare the total movement if A stayed A and B stayed B with the movement if they swapped. If swapping explains the motion better, count a switch.
 3. *What's a failure these miss?* Consistent errors, as above, and good-looking poses on the wrong person.
+
+---
+
+## 15. Making perception fast enough: FP16, overlap, and two GPUs
+
+**Problem.** The first pilot took 2.3 to 2.5 times as long as the video itself. At that rate 1000 fights would need hundreds of Kaggle session hours, and the free quota gives about 30 a week.
+
+**Why this approach.** Three cheap changes, each aimed at a different idle resource, before anything that changes what the models compute:
+- *FP16.* A T4's tensor cores do half-precision matrix maths several times faster than FP32, and inference doesn't need FP32's precision: the weights were trained with noise far larger than FP16 rounding. Half precision also halves the memory traffic for activations.
+- *Overlap.* Before, the GPU sat idle while the CPU decoded the next batch of frames, and the CPU sat idle while the GPU ran. A background thread now decodes ahead into a queue. OpenCV releases Python's global interpreter lock while decoding, so a thread is enough; no extra processes.
+- *Both GPUs.* Kaggle's T4 machine has two cards and the pilot used one. The job now runs one worker process per card, each restricted to its card with `CUDA_VISIBLE_DEVICES` before torch is imported, and gives each worker every other fight. Fights are independent, so this needs no communication and scales almost perfectly. Splitting one fight across two cards would need the tracker, which is sequential, to wait on both.
+
+**How we know nothing broke.** Speed changes must not change the answers, so we reran the two pilot fights and compared outputs with `cornerman compare`. Track IDs are arbitrary numbers, so it matches boxes frame by frame with the Hungarian algorithm on IoU, then checks: are the same boxes there, are they grouped into the same tracks, do they get the same role, and how far apart are the keypoints. Result: 99.4%+ of boxes matched with median IoU 0.997, 99.6% same track grouping, 97 to 98% same role, keypoints 0.24 px apart at the median. FP16 is also part of the cache key, so the two kinds of output can never be mixed by accident.
+
+**Result.** Per fight, 1.4 to 1.5 times faster, and with both GPUs a batch runs 2.75 times faster: 1.15 minutes of footage per minute of Kaggle session, up from 0.42.
+
+**What breaks it.** FP16 can overflow in layers with large activations (attention softmax, some normalisations), which shows up as NaN boxes or keypoints. That's why the comparison is a required step, not a nice-to-have. Running two fights at once doubles host memory use and makes the two workers compete for CPU decoding, which is part of why the batch gain is 2.75x and not 2 x 1.5 = 3x. The biggest remaining cost is decoding each video three times (shots, tracking, pose).
+
+**Interview questions.**
+1. *Why did the role agreement come out at 97 to 98% when boxes agreed at 99.5%?* Identity is a global clustering over all tracklets. A tracklet near the boundary between two groups can flip when its features move by a rounding error. So the 2 to 3% is a measure of how unstable identity is, not of FP16 damage. It's a useful number in its own right: it marks the share of boxes whose role we shouldn't trust.
+2. *Why not torch.compile or TensorRT?* Both give more speed but take minutes to build per session and are fussy about variable batch shapes. They're worth it once the pipeline stops changing; FP16 was a one-line change with a measurable check.
+3. *How would you find the next bottleneck?* The runner now records each stage's wall time. Shot detection takes 4 to 5 minutes, mostly decoding every frame of a 50 fps video to feed a model that only needs 48x27 images, so that's the next target, followed by decoding the video once instead of three times.

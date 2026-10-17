@@ -6,13 +6,21 @@ Cornerman turns public amateur MMA footage into a log of (state, action) events 
 
 ## Status
 
-Tier 0 (foundation) is done. No real footage has been processed yet. What exists:
+Tier 0 (foundation) is done. Tier 1 Phase 1 (data and perception skeleton) is mostly done: real perception has run on 2 amateur fights so far.
 
-- A pipeline runner with content-hash caching, running six stub stages (ingest, shots, tracking, pose, geometry, events) on one synthetic fixture fight. The stubs make seeded fake data with the same shape the real perception stages will produce.
-- A data contract for event tables. Fights that fail it are quarantined with a reason.
-- Derived data versioned with DVC.
-- A parameter recovery harness (interval coverage and simulation-based calibration), proven on a hierarchical Dirichlet-multinomial model. The correct posterior gives 90.8% coverage for 90% intervals. A deliberately overconfident one gives 76.8% and is flagged.
-- CI on every push: ruff, pyright (strict), pytest, and a secret scan of the full git history.
+- **Fight list.** 74 adult amateur fights and 125 fighters from the IMMAF YouTube channel (18 fighters have 2 or more fights). Youth, junior and cadet bouts are skipped, along with every bout of any fighter who appears in one. Fighters get anonymous IDs (`F0001`); real names stay on the laptop.
+- **Perception pipeline.** Shot boundaries (TransNetV2), person detection (RF-DETR Large), tracking per shot (BoT-SORT), fighter A / fighter B / referee by cannot-link clustering on clothing colour, and 2D pose (ViTPose++ Large). Runs as private Kaggle GPU jobs, one fight per GPU.
+- **Pilot, 2 fights.** Label-free health numbers, not accuracy (the gold set for real accuracy comes in Phase 2):
+
+  | Fight | Both fighters boxed (live frames) | Role switches per minute | Median keypoint confidence |
+  |---|---|---|---|
+  | ft_97394d8b1a | 67% | 3.8 | 0.87 |
+  | ft_9eec213a59 | 69% | 2.4 | 0.85 |
+
+  Known weak spots: in clinches against the fence the detector often draws one box around both fighters; the "referee" group picks up officials and spectators outside the cage; walk-outs count as live footage.
+- **Throughput.** 1.15 minutes of footage per minute of a Kaggle T4 x2 session, after an FP16 and two-GPU speed pass (0.42 before). Outputs before and after agree: 99.4% of boxes matched with median IoU 0.997, keypoints 0.24 px apart at the median. Details in [DECISIONS.md](DECISIONS.md).
+- **Foundation (Tier 0).** Pipeline runner with content-hash caching and quarantine, pandera data contracts, DVC for derived data, and a parameter recovery harness (coverage and simulation-based calibration) proven on a hierarchical Dirichlet-multinomial model.
+- CI on every push: ruff, pyright (strict), pytest on Python 3.12 and 3.13, and a secret scan of the full git history.
 
 ## Quickstart
 
@@ -20,7 +28,7 @@ Needs [uv](https://docs.astral.sh/uv/).
 
 ```sh
 uv sync
-uv run pytest                                          # all tests, about 2 seconds
+uv run pytest                                          # all tests, a few seconds
 uv run cornerman run --config configs/fixture.yaml     # run the pipeline on the fixture fight
 uv run cornerman run --config configs/fixture.yaml     # again: every stage is cached
 uv run cornerman run --config configs/fixture.yaml --stage pose --force   # rerun one stage
@@ -30,17 +38,32 @@ Outputs go to `data/derived/{fight_id}/{stage}/`, each with a `manifest.json` ho
 
 For development, also run `uv run pre-commit install` once.
 
+Real fights (needs a Kaggle login via `uvx --from kaggle==2.2.4 kaggle auth login`; everything on Kaggle is created private and checked):
+
+```sh
+uv run cornerman collect --config configs/collect.yaml   # fight list from public metadata, into data/
+uv run cornerman kaggle batch --n 5 --overlays 2         # stage videos privately, run the GPU job
+uv run cornerman kaggle status kaggle/perception
+uv run cornerman kaggle import                           # results into data/derived, delete staged videos
+uv run cornerman metrics                                 # label-free health numbers per fight
+```
+
 ## Layout
 
 ```
 src/cornerman/
   taxonomy.py      the locked 9 states, momentum flag, and 8 actions
   config.py        typed run config loaded from YAML
-  pipeline/        runner, hashing, stage definitions, CLI
-  contracts/       pandera schema for event tables
+  pipeline/        runner, hashing, stub stages, CLI
+  collect/         fight list and fighter registry from public metadata, adult-only filter
+  perception/      video I/O, shots, detection and tracking, identity, pose
+  remote/          Kaggle jobs (privacy-checked), batches, private video staging
+  products/        overlay videos
+  contracts/       pandera schemas for events, fights, tracks and poses
   models/          statistical models (so far: Dirichlet-multinomial)
-  eval/            parameter recovery and SBC harness
+  eval/            recovery and SBC harness, perception health metrics, run comparison
 configs/           run configs
+kaggle/            GPU job scripts (private Kaggle kernels)
 data/fixtures/     synthetic fixture fight (in git)
 data/derived/      pipeline outputs (in DVC, not git)
 tests/             unit, property, recovery, golden

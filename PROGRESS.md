@@ -32,19 +32,31 @@ $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs
 - Docs: README, LEARNING.md (7 sections), DECISIONS.md, costs.md, AUDIT.md placeholder.
 - 53 tests, about 2 seconds.
 
+### Tier 1, Phase 1 (data and perception skeleton), mostly done 2026-10-17
+- Kaggle wrapper (`remote/kaggle.py`): every call is privacy-checked. Public flag refused, `is_private: true` required, kernel metadata read back after push, and every kernel and dataset requested anonymously after upload (must not return 200).
+- Footage: IMMAF YouTube channel, metadata only. 74 adult fights, 125 fighters, 18 with 2+ fights (`data/fights.csv`, `data/fighters.csv`, local only). Adult-only filter reads titles and descriptions; skipped 11 videos directly and 5 more by the fighter rule (all junior or youth).
+- Model choices logged (TransNetV2, RF-DETR Large, BoT-SORT, ViTPose++ Large); AGPL and non-commercial licences avoided.
+- Real pipeline (`pipeline: real`): ingest, shots, tracking, identity, pose, plus overlays and label-free health metrics. CPU end-to-end test on a synthetic video with stand-in models.
+- Kaggle job: one worker per GPU on the T4 x2 machine, per-stage timings, resumable by batch (import takes only finished fights).
+- YouTube blocked Kaggle after 2 downloads, so batches now download on the laptop, upload one private dataset, delete local copies, and `import` deletes the dataset.
+- Pilot: 2 fights processed (the other 3 of the first batch were blocked by YouTube). Health numbers per fight: both fighters boxed in 67% and 69% of live frames, 3.8 and 2.4 role switches per minute, median keypoint confidence 0.87 and 0.85.
+- Speed pass (FP16, prefetching, bigger batches, two GPUs): 0.42 to 1.15 footage minutes per session minute; per fight 1.38x to 1.53x faster. Outputs match the FP32 run (99.4% boxes matched, median IoU 0.997, keypoints 0.24 px apart at the median). Details in DECISIONS.md.
+- Docs: LEARNING.md sections 8 to 15. 114 tests, all passing.
+
 ## Shaky or worth a second look
+- **Perception weak spots seen in the pilot overlays.** In clinches against the fence the detector often draws one box around both fighters (the main reason both fighters are boxed only about two thirds of the time). The "referee" group picks up officials, photographers and spectators outside the cage. Walk-outs and between-round footage count as live (live share 95 to 100%). All need Phase 2 numbers before fixing.
+- **Identity is unstable on 2 to 3% of boxes**: the FP16 rerun changed the role of that share even though boxes barely moved. Fighter A and B are also not yet linked to names; IMMAF uses red and blue kits, which should make that easy.
+- **Throughput is still too low for 1000 fights on free quota**: about 200 session hours at the current rate. Next targets by measured stage time: shot detection (4 to 5 minutes per fight, mostly decoding every frame) and decoding each video three times.
+- **YouTube may block the laptop too** if batches get large. One transient download failure happened; downloads now retry once.
 - The stage code hash doesn't see changes in helper functions. Each stage has a manual `version` string to bump. Hashing the whole module would be stricter.
 - Plug-in empirical Bayes ignores uncertainty in alpha and pi. Fine with hundreds of fighters, too narrow with few. Full Bayes comes in Tier 1.
 - The first `pre-commit` run on a new machine downloads Go to build gitleaks, which takes a minute or two.
 
-## Next: Tier 1, Phase 1 (data and perception skeleton), in progress
-Ansh signed off on Tier 0 and started Tier 1 on 2026-10-17.
-1. Kaggle smoke test: can yt-dlp download inside a Kaggle job? If YouTube blocks it, download on the laptop and upload a private Kaggle dataset instead.
-2. Model selection pass (hard rule 5): shot boundary, detector, tracker, re-ID, 2D pose that fit a Kaggle T4/P100. Log in DECISIONS.md.
-3. Footage collection with yt-dlp: public amateur sources only, adult bouts only (no youth, junior or cadet divisions). Build `data/fights.csv` and `data/fighters.csv` locally with anonymized fighter IDs. Target 50 fights.
-4. Kaggle job scaffolding in `kaggle/`: resumable per-fight jobs, raw video deleted after each fight, every kernel and dataset private.
-5. Real ingest, shots, tracking, identity and pose on 5 fights, with overlay videos kept local.
-6. MLflow comes later, before the first real model fit (Phase 4).
+## Next
+1. Finish Phase 1: run the 3 pilot fights YouTube blocked (`cornerman kaggle batch --n 3 --overlays 1`), so the pilot covers 5 fights as the spec asks.
+2. A second speed pass before scaling (decode once for tracking and pose; cheaper shot detection), measured against the numbers above.
+3. Then 50 fights (hard rule 10), then Phase 2: the automated gold set.
+4. MLflow comes later, before the first real model fit (Phase 4).
 
 ## Later (noted 2026-10-17)
 - **More amateur sources before Tier 2.** Only 18 of 125 fighters have 2+ fights in the IMMAF data. Per-fighter models need depth, so Tier 2 (scaling to 1000+ fights) must add more public amateur sources with repeat fighters. Same rules apply: adult bouts only, no pro promotion broadcasts.
