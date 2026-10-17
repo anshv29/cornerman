@@ -1,0 +1,12 @@
+# Runs the stub pipeline on the checked-in fixture fight.
+seed: 7
+fights: [fixture_fight]
+paths:
+  fixtures: data/fixtures
+  derived: data/derived
+  quarantine: data/quarantine
+stub:
+  fps: 10
+  n_shots: 4
+  keypoints: 17
+  events_per_minute: 12

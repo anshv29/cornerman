@@ -1,0 +1,13 @@
+{
+  "fight_id": "fixture_fight",
+  "event": "synthetic-event-001",
+  "date": "2026-01-01",
+  "fighter_a": "F0001",
+  "fighter_b": "F0002",
+  "weight_class": "lightweight",
+  "result": "F0001",
+  "method": "decision",
+  "rounds": 1,
+  "round_seconds": 60,
+  "note": "Synthetic fixture. No video exists for this fight."
+}
