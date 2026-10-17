@@ -2,8 +2,9 @@
 
 `cornerman run --config configs/fixture.yaml` runs the pipeline.
 `cornerman collect --config configs/collect.yaml` builds the local fight registry.
-`cornerman kaggle push|status|pull` drives Kaggle jobs, always through the
-privacy checks in cornerman.remote.kaggle.
+`cornerman kaggle push|status|pull|batch|import` drives Kaggle jobs, always
+through the privacy checks in cornerman.remote.kaggle.
+`cornerman metrics` prints label-free perception health numbers per fight.
 """
 
 import argparse
@@ -12,14 +13,17 @@ import logging
 from collections import Counter
 from pathlib import Path
 
+import pandas as pd
+
 from cornerman.collect.run import collect
 from cornerman.config import load_settings
 from cornerman.pipeline.runner import run
 from cornerman.pipeline.stage import Stage
 from cornerman.pipeline.stages import PIPELINE
-from cornerman.remote import kaggle
+from cornerman.remote import batch, kaggle
 
 KAGGLE_BUILD = Path("kaggle/build")
+PERCEPTION_KERNEL = Path("kaggle/perception")
 
 
 def pipeline_for(name: str) -> list[Stage]:
@@ -56,12 +60,25 @@ def main(argv: list[str] | None = None) -> int:
     p_pull = kg.add_parser("pull", help="download a kernel's output")
     p_pull.add_argument("folder", type=Path)
     p_pull.add_argument("--dest", type=Path, required=True)
+    p_batch = kg.add_parser("batch", help="push the next unprocessed fights to the GPU job")
+    p_batch.add_argument("--config", type=Path, default=Path("configs/kaggle_real.yaml"))
+    p_batch.add_argument("--fights-csv", type=Path, default=Path("data/fights.csv"))
+    p_batch.add_argument("--n", type=int, required=True)
+    p_batch.add_argument("--overlays", type=int, default=0)
+    p_import = kg.add_parser("import", help="pull the GPU job's output into data/")
+    p_import.add_argument("--data", type=Path, default=Path("data"))
+
+    p_met = sub.add_parser("metrics", help="perception health numbers for processed fights")
+    p_met.add_argument("--derived", type=Path, default=Path("data/derived"))
+    p_met.add_argument("--fps", type=float, default=10.0)
     args = parser.parse_args(argv)
 
     if args.command == "kaggle":
         return _kaggle(args)
     if args.command == "collect":
         return _collect(args.config)
+    if args.command == "metrics":
+        return _metrics(args.derived, args.fps)
 
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING, format="%(message)s"
@@ -92,19 +109,58 @@ def _collect(config: Path) -> int:
     return 0
 
 
+def _push(folder: Path, values: dict[str, object]) -> None:
+    built = kaggle.build_kernel(folder, KAGGLE_BUILD / folder.name, values)
+    print(kaggle.push_kernel(built))
+    print(f"pushed {kaggle.read_kernel_metadata(folder)['id']}, confirmed private on Kaggle")
+
+
 def _kaggle(args: argparse.Namespace) -> int:
+    if args.kaggle_command == "batch":
+        fights = pd.read_csv(args.fights_csv)
+        chosen = batch.select_fights(fights, Path("data/derived"), args.n)
+        print(f"{len(chosen)} fights: {', '.join(chosen['fight_id'])}")
+        _push(PERCEPTION_KERNEL, batch.build_values(chosen, args.config, args.overlays))
+        return 0
+    if args.kaggle_command == "import":
+        data: Path = args.data
+        ref = str(kaggle.read_kernel_metadata(PERCEPTION_KERNEL)["id"])
+        src = kaggle.pull_output(ref, KAGGLE_BUILD / "perception_output")
+        done = batch.import_outputs(src, data / "derived", data / "overlays", data / "logs")
+        print(f"imported {len(done)} finished fights")
+        return 0
     folder: Path = args.folder
     ref = str(kaggle.read_kernel_metadata(folder)["id"])
     if args.kaggle_command == "push":
         values_file: Path | None = args.values
         values: dict[str, object] = json.loads(values_file.read_text()) if values_file else {}
-        built = kaggle.build_kernel(folder, KAGGLE_BUILD / folder.name, values)
-        print(kaggle.push_kernel(built))
-        print(f"pushed {ref}, confirmed private on Kaggle")
+        _push(folder, values)
     elif args.kaggle_command == "status":
         print(kaggle.kernel_status(ref))
     else:
         print(kaggle.pull_output(ref, args.dest))
+    return 0
+
+
+def _metrics(derived: Path, fps: float) -> int:
+    from cornerman.eval.perception_metrics import fight_metrics
+
+    rows: list[dict[str, object]] = []
+    for fid in sorted(batch.done_fights(derived)):
+        d = derived / fid
+        m = fight_metrics(
+            frames=pd.read_parquet(d / "tracking" / "frames.parquet"),
+            tracks=pd.read_parquet(d / "tracking" / "tracks.parquet"),
+            roles=pd.read_parquet(d / "identity" / "identity.parquet"),
+            live=pd.read_parquet(d / "identity" / "live.parquet"),
+            poses=pd.read_parquet(d / "pose" / "poses.parquet"),
+            step_seconds=1 / fps,
+        )
+        rows.append({"fight_id": fid, **m})
+    if not rows:
+        print("no processed fights")
+        return 0
+    print(pd.DataFrame(rows).round(3).to_string(index=False))
     return 0
 
 

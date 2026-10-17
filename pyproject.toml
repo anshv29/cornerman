@@ -25,7 +25,7 @@ gpu = [
     "transformers==5.20.1",
     "transnetv2-pytorch==1.0.5",
     "supervision==0.31.0",
-    "opencv-python-headless>=4.10",
+    "opencv-python>=4.10",
     "torch>=2.6",
     "torchvision>=0.21",
 ]
