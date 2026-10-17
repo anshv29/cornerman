@@ -114,7 +114,7 @@ def _cache_key(stage: Stage, settings: Settings, fight_id: str, dep_hashes: dict
             "seed": settings.seed,
             "fight": fight_id,
             "deps": dep_hashes,
-            "sources": {p.as_posix(): hash_file(p) for p in sources},
+            "sources": [hash_file(p) for p in sources],
         }
     )
 
