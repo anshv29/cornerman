@@ -151,3 +151,136 @@ Each stage also gets its own seed, derived by hashing (global seed, fight, stage
 1. *Give an example of a property test that would catch a real bug.* The pmf-sums-to-one test catches a missing multinomial coefficient or a sign error in a log-Gamma term, which example tests with one hand-computed value often miss.
 2. *Why does order invariance matter for this project?* The cornerman updates beliefs as events stream in during a fight. If the update depended on order, beliefs would depend on how events were batched, not on what happened.
 3. *What does shrinking do?* When a property fails, hypothesis repeatedly simplifies the failing input while it keeps failing, so you debug the smallest case instead of a random big one.
+
+---
+
+## 8. Footage collection, the adult-only filter, and the fighter registry
+
+**Problem.** Every model later needs many fights per fighter, and every fight needs to be tied to the right two people. That starts with a list of fights, a list of fighters with stable IDs, and confidence that nothing in the data shows a minor or a pro promotion broadcast.
+
+**Why this approach.** The first source is the official YouTube channel of IMMAF, the international amateur MMA federation. It posts complete single bouts from its championships with a consistent title format ("A vs. B | FULL FIGHT | 2023 ... Championships"), the footage is a fixed broadcast camera at 720p or 1080p, and the same fighters come back year after year. Parsing a fixed title format with one regular expression is far more reliable than trying to understand free text. We fetch metadata only (title, description, resolution, length). Video is downloaded later, inside the GPU job, and only for fights that passed every filter.
+
+**How it works.**
+1. `cornerman collect` lists the channel's uploads and keeps titles containing "FULL FIGHT".
+2. For each one, yt-dlp fetches the metadata JSON, cached under `data/meta/` so reruns don't hit YouTube.
+3. The title is parsed into fighter A, fighter B, the event, the year and a rematch number ("... 2").
+4. The adult filter reads the title *and* the description. Bouts can sit under an adult event name and only say "Junior World Champion" in the description, so titles alone aren't enough. It flags youth, junior and cadet, age groups up to U21, words for children, and any stated age under 18. Any fighter who appears in a flagged video is then removed from the whole dataset, because we can't know when they turned 18. On the first run this dropped 11 videos directly and 5 more through that fighter rule.
+5. Videos under 480p are dropped, then duplicates (same video, or same pairing at the same event and meeting).
+6. Names are matched through a key that strips accents, case and punctuation, so "Paweł" and "Pawel" are one person. Each person gets an anonymous ID (`F0001`), kept stable across reruns by reading the previous registry. Fight IDs are a hash of the source and video ID, so neither ID reveals who or which video.
+
+**What breaks it.** Two different people with the same name merge into one. One person whose name is spelled two ways that differ by more than accents (a transliteration, a dropped middle name) splits into two. Both hurt per-fighter models. The adult filter can miss a minor if nothing in the title or description says so, which is why it's deliberately aggressive (it skips "junior" even where junior means 18 to 20). And a single source is a single camera style, so perception tuned on it may not transfer to other footage.
+
+**Interview questions.**
+1. *Why not identify fighters by face?* Faces are small, often hidden by the guard, and we'd be building a face recognition system on people who never agreed to it. Names from the official title are more reliable and need no biometric data.
+2. *How do you keep real names out of the public repo?* Everything with names lives in `data/`, which git ignores by default with an allow-list, and a test pins that. Every table that leaves the laptop uses `F0001`-style IDs, and the event contract rejects anything that doesn't look like one.
+3. *Why drop a fighter's adult bouts because of one junior bout?* We can't tell a fighter's age from a title, and the cost of including a minor is much higher than the cost of losing a few fights. It's a precision-over-recall choice made on purpose.
+
+---
+
+## 9. Kaggle GPU jobs: privacy, downloading, and resuming
+
+**Problem.** Perception needs a GPU, which means Kaggle's free T4s. Those sessions get killed, have a 12 hour limit, and anything we upload there could be made public by mistake.
+
+**Why this approach.** Every Kaggle call goes through `cornerman.remote.kaggle`, which refuses the public flag, requires `"is_private": true` in a kernel's metadata before pushing, and after a push downloads the metadata back from Kaggle and checks it again. Checking after the push matters because it tests what Kaggle actually stored, not what we meant to send. Video links and the batch of fights are written into a copy of the job script at build time, so they live only inside the private kernel, never in git.
+A smoke test showed YouTube doesn't block downloads from Kaggle, so the job downloads its own video, processes it and deletes it. Video never touches the laptop. The job installs our package from GitHub at an exact commit, which makes every run reproducible from the commit hash plus the config, and it uses Kaggle's own torch rather than downloading another copy.
+
+**How it works.**
+1. `cornerman kaggle batch --n 5` picks the next fights whose final stage (pose) isn't on the laptop yet, preferring fighters with the most fights.
+2. It fills the fight list, config, repo and commit into `kaggle/perception/job.py`, checks privacy, pushes, and confirms on Kaggle.
+3. The job loops over fights: run the pipeline (which writes each stage's output atomically), render an overlay for the first few, delete the raw video, append to `job_log.json`. It stops starting new fights after 10 hours.
+4. `cornerman kaggle import` pulls the output and copies only fully finished fights into `data/derived/`. A fight that was cut off simply isn't imported, so the next batch picks it up again. That's the whole resume mechanism, and it works because the runner never leaves a half-written stage that looks complete.
+
+**What breaks it.** YouTube could start blocking Kaggle's IP ranges. The fallback is to download on the laptop and upload a private Kaggle dataset per batch, deleted after processing. A commit that isn't pushed can't be installed by the job, so `batch` refuses to push in that case. Kaggle's Python and torch versions change without notice, which is why CI also tests on Python 3.13.
+
+**Interview questions.**
+1. *How do you make sure nothing goes public?* The check is in code on every call, not in a habit: the public flag is refused, metadata must say private, and after every push we read the kernel's metadata back from Kaggle and fail loudly if it isn't private. Tests cover each of those paths.
+2. *What happens if the session dies on fight 4 of 5?* Fights 1 to 3 are complete on disk. If Kaggle saved the output, import copies those three and ignores fight 4's partial stages. If it didn't, nothing is imported. Either way the next batch is built from what's actually finished on the laptop, so fight 4 gets redone.
+3. *Why install from a git commit instead of uploading code?* The commit hash pins exactly what ran, CI has already tested that commit, and there's no second copy of the code to drift.
+
+---
+
+## 10. Shot boundaries
+
+**Problem.** Broadcast fight video cuts between cameras, replays and graphics. A tracker that runs across a cut will glue two different people together, and everything after that inherits the mistake.
+
+**Why this approach.** TransNetV2 is a small network trained specifically to find cuts and gradual transitions (fades, wipes). It looks at tiny 48x27 frames, so it reads the whole video in a couple of minutes. Simpler methods that threshold the difference between consecutive frames miss gradual transitions and fire on fast motion, which is exactly what a fight has.
+
+**How it works.** Every frame gets a probability that a transition is happening. Runs of frames above 0.5 are transitions, and the stretches between them are shots. Frames inside a transition belong to no shot and are skipped. Each shot is then marked live if at least half of its sampled frames show two or more people big enough to be on the mat, which removes crowd shots, close-ups and graphics.
+
+**What breaks it.** Replays and slow motion are separate shots but still "live" by this test. Replays are counted twice until Phase 2 adds replay matching. A very fast whip pan can look like a cut, which only splits a shot in two (harmless: identity re-joins the tracks).
+
+**Interview questions.**
+1. *Why reset the tracker at every cut instead of letting it handle it?* A tracker predicts where a box moves next. Across a cut that prediction is meaningless, so any match it makes is luck. It's cleaner to start fresh and leave cross-shot linking to the identity step, which uses appearance.
+2. *How would you tell a replay from live action?* Replays often come with a graphic wipe and slower motion, and they show content we've already seen. Matching a shot's pose sequence against earlier footage finds them; that's planned for Phase 2.
+3. *What's the cost of a missed cut?* One tracklet contains two people. The cannot-link clustering can't fix that, so identity for that tracklet is wrong. That's why we use a learned detector here rather than a cheap one.
+
+---
+
+## 11. Person detection and tracking
+
+**Problem.** Find every person in each sampled frame and follow each one through a shot.
+
+**Why this approach.** RF-DETR Large is a transformer detector with about 56.5 COCO AP at real-time speed on a T4, under Apache 2.0. Popular alternatives (Ultralytics YOLO, BoxMOT) are AGPL, which doesn't fit a public repo we want others to reuse freely. For tracking, BoT-SORT from Roboflow's `trackers` package scored best among the light trackers on SportsMOT and DanceTrack, and it compensates for camera motion, which matters because broadcast cameras pan and zoom with the action.
+
+**How it works.** We sample 10 frames per second (every 5th frame of a 50 fps video), batch them through the detector, and keep only people whose box is at least 20% of the frame height. That threshold drops the crowd and cornermen. BoT-SORT predicts where each existing track will be (a Kalman filter on box position and size), estimates the camera's motion from optical flow and corrects the predictions for it, then matches new boxes to predicted tracks: confident detections first, then weaker ones. Track IDs are made unique across shots by adding an offset at each cut. For each tracked box we also store a 64-number colour description (see identity).
+
+**What breaks it.** Clinches and ground fighting: two bodies overlap, the detector may return one box for both or swap which is which. Tracks break on occlusion by the referee. The referee leaning in can be bigger than a fighter on the ground. None of these are fixed here; they show up as role switches and lower "both fighters visible" numbers in the health metrics.
+
+**Interview questions.**
+1. *Why sample at 10 fps instead of every frame?* Fighting moves fast, but actions last a few hundred milliseconds, so 10 fps still sees each one several times, and it cuts GPU time by five.
+2. *Why does camera-motion compensation matter here?* When the camera pans, every person appears to move across the frame even if they stand still. Without compensation, the tracker's predictions are off by the pan and matches fail.
+3. *How do you know the tracker works without labels?* We don't yet, fully. Until the gold set, we watch label-free numbers: how often both fighters are visible in live footage, and how often fighter A's box jumps to where fighter B just was.
+
+---
+
+## 12. Identity: fighter A, fighter B, referee
+
+**Problem.** Tracks break at every cut and occlusion. A 15 minute fight becomes hundreds of short tracklets. We need to know which ones are the same person, and which person is the referee.
+
+**Why this approach.** In amateur MMA the two fighters wear different coloured shorts and gloves, and the referee wears a shirt and trousers. Colour is a strong cue, but on its own it fails when two outfits look similar under arena lighting. The extra fact that rescues it is simple: two tracklets visible in the same frame are two different people. Adding that as a hard rule to clustering (cannot-link k-means) stops the most damaging mistake, merging both fighters into one person.
+
+**How it works.**
+1. *Features.* For each box, a hue-saturation histogram of the upper body and one of the shorts band, each square-rooted and the whole vector normalised. Brightness is left out because it changes with lighting more than clothing does. The square root stops one dominant colour (skin) from swamping the rest.
+2. *Summarise.* Each tracklet with at least 5 frames gets its average feature. We record which tracklets ever share a frame.
+3. *Seed.* Start the three groups from the three longest tracklets that were on screen together, so they're certainly three different people.
+4. *Assign.* Going from the longest tracklet down, put each one in its nearest group that doesn't already hold a tracklet it shares a frame with. If every allowed group is too far away in appearance, call it "other" (a cornerman, a cameraman). Recompute the group centres as length-weighted averages and repeat until nothing changes.
+5. *Name.* The two groups whose boxes stay closest to each other (median centre distance in box heights) are the fighters, and the third is the referee. Fighter A is whichever fighter is on the left the first time both are seen. A and B are consistent within a fight, but not yet linked to the names in `fights.csv`.
+
+**What breaks it.** Both fighters in the same colours and a referee in similar tones. The referee standing in a clinch, closer to one fighter than the fighters are to each other. A long shot where only one fighter is visible gives no cannot-link constraint. Linking A/B to names (by corner colour from the event) is still to do.
+
+**Interview questions.**
+1. *Why not a learned re-identification network?* Re-ID models are trained on pedestrians in street clothes; two shirtless fighters in similar shorts look nearly the same to them. Our problem has only three people and strong structure (co-occurrence, proximity), and the simple model uses that structure directly. A re-ID embedding could be added as extra feature dimensions later if colour proves too weak.
+2. *Why is the cannot-link rule so important?* Without it, if both fighters' shorts look similar under the lights, k-means happily merges them and splits the referee into two groups. The rule makes that assignment impossible, because the merged group would contain two tracklets from the same frame.
+3. *How do you know who the referee is without labels?* By behaviour, not looks: fighters spend the fight close to each other, the referee keeps distance. That holds in every bout, whatever anyone wears.
+
+---
+
+## 13. 2D pose
+
+**Problem.** Later stages (state classification, strikes, takedowns) need body keypoints for each fighter: where the hips, hands, knees and head are.
+
+**Why this approach.** ViTPose++ Large is a top-down pose model: give it a person box and it returns 17 COCO keypoints with confidences. It is the strongest permissive-licence option on COCO keypoints (Sapiens is stronger but non-commercial). Top-down suits us because we already have tracked boxes, and only two people per frame need poses. It runs through Hugging Face `transformers`, pinned to a model revision hash, so the weights can't change under us.
+
+**How it works.** For each sampled frame in a live shot, take at most one box per fighter, crop and resize it to the model's input, predict a heatmap per keypoint, and read off the peak location and height as position and confidence. ViTPose++ is trained on several datasets with a separate output head per dataset; we pass the COCO head's index.
+
+**What breaks it.** Grappling. When bodies tangle, a box contains limbs from both fighters and the model can put one fighter's knee on the other's leg. Keypoint confidence drops, which the health metrics track per fight. The spec plans to lean on hip height, silhouette and torso orientation in clinch and ground states rather than individual keypoints, and to try 3D body mesh where 2D breaks.
+
+**Interview questions.**
+1. *Top-down or bottom-up pose?* Top-down: we already have tracked boxes with identities, and only two people matter, so cost is small and accuracy is higher. Bottom-up wins with crowds, which we don't have.
+2. *How do you use keypoint confidence?* It's stored with every keypoint. Downstream features will ignore points below a threshold, and the median per fight is a health number.
+3. *What would you try first if pose fails in grappling?* Measure it first (Phase 2 gold set split by state), then use the segmentation variant of the detector to separate bodies, and features that don't need exact limbs, like hip height and the shape of the combined silhouette.
+
+---
+
+## 14. Perception health metrics (label-free)
+
+**Problem.** Real accuracy numbers need a gold set (Phase 2). Until then we still need to notice when perception is broken on a fight.
+
+**How it works.** Per fight, from the stage outputs: the share of sampled frames in live shots; in live frames, the share where both fighters have a box and where the referee has one; role switches per live minute (frames where swapping A and B would explain the movement better than keeping them, which is what an identity swap looks like); and the median keypoint confidence. `cornerman metrics` prints them.
+
+**What breaks it.** These measure consistency, not truth. Labels that are consistently wrong (fighter A always tracked as the referee) look perfect here. They're an early warning, not an accuracy number, and the write-up never presents them as one.
+
+**Interview questions.**
+1. *Why bother with metrics that aren't accuracy?* They're free, they cover every fight, and a fight with both fighters visible only 30% of the time is broken whatever the gold set says.
+2. *How does the role-switch count work?* Between consecutive frames, compare the total movement if A stayed A and B stayed B with the movement if they swapped. If swapping explains the motion better, count a switch.
+3. *What's a failure these miss?* Consistent errors, as above, and good-looking poses on the wrong person.
