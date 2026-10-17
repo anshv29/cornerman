@@ -1,0 +1,16 @@
+data/raw/
+*.mp4
+*.mkv
+*.webm
+*.mov
+.venv/
+__pycache__/
+*.pyc
+.env
+kaggle.json
+mlruns/
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+data/quarantine/

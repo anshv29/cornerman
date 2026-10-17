@@ -1,0 +1,61 @@
+[project]
+name = "cornerman"
+version = "0.1.0"
+description = "Learns how amateur MMA fighters fight from public footage, and simulates matchups."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=2.5",
+    "scipy>=1.18",
+    "pandas>=3.0",
+    "pyarrow>=26.0",
+    "pandera>=0.34",
+    "pydantic>=2.14",
+    "pydantic-settings>=2.16",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+cornerman = "cornerman.pipeline.cli:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17",
+    "pyright>=1.1.414",
+    "pytest>=9.1",
+    "hypothesis>=6.170",
+    "pre-commit>=4.7",
+    "dvc>=3.67",
+    "types-pyyaml",
+    "pandas-stubs",
+    "scipy-stubs",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cornerman"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "NPY"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+# Strict everywhere. Gaps in third-party stubs (pandas, scipy, pandera) are
+# silenced line by line with a rule-specific ignore. See DECISIONS.md.
+
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+reportPrivateUsage = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
