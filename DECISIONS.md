@@ -62,3 +62,9 @@ The fallback stays documented but unbuilt: if Kaggle downloads start failing, do
 
 ## 2026-10-17: Support Python 3.13 as well as 3.12
 The smoke test showed Kaggle runs Python 3.13 with torch 2.11 (CUDA 12.8) preinstalled. Installing our package into that Python reuses Kaggle's torch instead of downloading a second 2 GB copy into a 3.12 environment on every run. `requires-python` is now `>=3.12,<3.14`. The laptop and the main CI job stay on 3.12 (the `.python-version` pin), and a second CI job runs the tests on 3.13.
+
+## 2026-10-17: YouTube blocks Kaggle after a few downloads; videos go through a private dataset
+The 5-fight pilot downloaded and processed its first two fights, then the next three failed in under 2 seconds each with YouTube's "Sign in to confirm you're not a bot". So the smoke test's conclusion (download inside Kaggle) held for two or three videos, not for batches. We don't pass YouTube cookies: that would mean putting Ansh's logged-in session on a Kaggle machine.
+The fallback is now the default (`cornerman kaggle batch --source dataset`): the laptop downloads the batch's videos into gitignored `data/raw/upload/`, uploads them as one private Kaggle dataset (`cornerman-videos`), and deletes the local copies right after the upload. The kernel attaches the dataset, `ensure_video` links each video from `/kaggle/input` instead of downloading, and `cornerman kaggle import` deletes the dataset once the results are home. Raw video exists only while a batch is being processed.
+Privacy for datasets is checked the same way as for kernels: the public flag is refused, and after upload we request the dataset with no credentials and fail if Kaggle answers 200 (a public dataset returns 200; a private or missing one returns 403 or 404). Kernel pushes now get the same anonymous check on top of reading their metadata back.
+`--source youtube` still exists for small batches, and the three blocked pilot fights are left for the next batch.

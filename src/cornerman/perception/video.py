@@ -48,12 +48,19 @@ def raw_dir(settings: Settings, fight_id: str) -> Path:
 
 
 def ensure_video(settings: Settings, fight_id: str) -> Path:
-    """Path to the fight's video, downloading it first if it isn't on disk."""
+    """Path to the fight's video: already in raw/, staged in video_source, or downloaded."""
     folder = raw_dir(settings, fight_id)
     found = sorted(folder.glob("video.*")) if folder.exists() else []
     if found:
         return found[0]
     folder.mkdir(parents=True, exist_ok=True)
+    src = settings.paths.video_source
+    staged = sorted(src.rglob(f"{fight_id}.*")) if src is not None and src.exists() else []
+    if staged:
+        # The source is read-only (a Kaggle dataset); link it rather than copy.
+        link = folder / f"video{staged[0].suffix}"
+        link.symlink_to(staged[0].resolve())
+        return link
     h = settings.perception.max_height
     cmd = [
         sys.executable, "-m", "yt_dlp", "--quiet", "--no-warnings", "--no-playlist",

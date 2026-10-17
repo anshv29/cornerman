@@ -21,6 +21,9 @@ class PathsConfig(BaseModel):
     """Raw video, one folder per fight. Deleted once the fight is processed."""
     manifest: Path = Path("data/manifest.json")
     """fight_id -> video URL for the fights in this run. Never committed."""
+    video_source: Path | None = None
+    """A folder holding pre-downloaded videos named {fight_id}.mp4 (searched recursively),
+    e.g. the private Kaggle dataset. Used before trying to download."""
 
 
 class StubConfig(BaseModel):

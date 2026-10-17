@@ -1,6 +1,7 @@
 """Perception logic that runs without models: shots, colour features, identity, metrics."""
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -164,3 +165,20 @@ def test_prefetch_keeps_order_and_raises() -> None:
 
     with pytest.raises(ValueError, match="decode failed"):
         list(prefetch(broken(), depth=2))
+
+
+def test_ensure_video_links_a_staged_video(tmp_path: Path) -> None:
+    import shutil
+
+    from cornerman.config import PathsConfig, Settings
+    from cornerman.perception.video import ensure_video, raw_dir
+
+    staged = tmp_path / "input" / "cornerman-videos" / "ft_abc.mp4"
+    staged.parent.mkdir(parents=True)
+    staged.write_bytes(b"video")
+    settings = Settings(paths=PathsConfig(raw=tmp_path / "raw", video_source=tmp_path / "input"))
+    path = ensure_video(settings, "ft_abc")
+    assert path.read_bytes() == b"video"
+    assert path.is_symlink()
+    shutil.rmtree(raw_dir(settings, "ft_abc"))
+    assert staged.exists()  # deleting raw/ never touches the read-only source

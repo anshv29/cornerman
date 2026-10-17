@@ -6,7 +6,9 @@ public one would redistribute video (hard rule 2) and could expose real
 fighter names. Checks happen in code before anything is sent:
 - no command may carry `--public` / `-u`;
 - a kernel folder must have `"is_private": true` in its metadata;
-- after a kernel push we pull its metadata back from Kaggle and check again.
+- after a kernel push we pull its metadata back from Kaggle and check again;
+- after any kernel push or dataset upload we request it anonymously (no
+  credentials) and fail unless Kaggle refuses, which is what private means.
 
 The CLI itself runs through uvx at a pinned version, so it never needs to be
 installed globally and the laptop and docs agree on the version.
@@ -16,6 +18,9 @@ import json
 import shutil
 import subprocess
 import tempfile
+import time
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
@@ -25,6 +30,8 @@ BUILD_MARK = "# BUILD:"
 _PUBLIC_FLAGS = frozenset({"-u", "--public"})
 
 Runner = Callable[[Sequence[str]], str]
+Prober = Callable[[str], int]
+"""Returns the HTTP status of an anonymous GET of a URL."""
 
 
 class PrivacyError(Exception):
@@ -80,7 +87,28 @@ def kaggle(args: Sequence[str], runner: Runner = _run_cli) -> str:
     return runner(args)
 
 
-def build_kernel(src: Path, dest: Path, values: Mapping[str, object]) -> Path:
+def anonymous_status(url: str) -> int:
+    req = urllib.request.Request(url, headers={"User-Agent": "cornerman-privacy-check"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return int(resp.status)
+    except urllib.error.HTTPError as e:
+        return int(e.code)
+
+
+def check_not_public(url: str, probe: Prober = anonymous_status) -> None:
+    """Fail if anyone without credentials can see this URL."""
+    status = probe(url)
+    if status == 200:
+        raise PrivacyError(f"{url} is visible without logging in")
+
+
+def build_kernel(
+    src: Path,
+    dest: Path,
+    values: Mapping[str, object],
+    metadata: Mapping[str, object] | None = None,
+) -> Path:
     """Copy a kernel folder and fill in its build-time values.
 
     A line in the code file like `VIDEO_URLS: list[str] = []  # BUILD:VIDEO_URLS`
@@ -92,6 +120,11 @@ def build_kernel(src: Path, dest: Path, values: Mapping[str, object]) -> Path:
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(src, dest)
+    if metadata:
+        # e.g. dataset_sources for this batch. Privacy is checked again after merging.
+        merged = {**meta, **metadata}
+        check_kernel_metadata(merged)
+        (dest / KERNEL_METADATA).write_text(json.dumps(merged, indent=2))
     code = dest / str(meta["code_file"])
     lines: list[str] = []
     missing = set(values)
@@ -115,12 +148,16 @@ DEFAULT_ACCELERATOR = "NvidiaTeslaT4"
 
 
 def push_kernel(
-    folder: Path, runner: Runner = _run_cli, accelerator: str = DEFAULT_ACCELERATOR
+    folder: Path,
+    runner: Runner = _run_cli,
+    accelerator: str = DEFAULT_ACCELERATOR,
+    probe: Prober = anonymous_status,
 ) -> str:
-    """Push a kernel, then pull its metadata back and confirm Kaggle has it private."""
+    """Push a kernel, then confirm on Kaggle that it is private, two ways."""
     meta = read_kernel_metadata(folder)
     out = kaggle(["kernels", "push", "-p", str(folder), "--accelerator", accelerator], runner)
     verify_kernel_private(str(meta["id"]), runner)
+    check_not_public(f"https://www.kaggle.com/code/{meta['id']}", probe)
     return out
 
 
@@ -138,3 +175,42 @@ def pull_output(ref: str, dest: Path, runner: Runner = _run_cli) -> Path:
     dest.mkdir(parents=True, exist_ok=True)
     kaggle(["kernels", "output", ref, "-p", str(dest)], runner)
     return dest
+
+
+DATASET_METADATA = "dataset-metadata.json"
+
+
+def dataset_exists(ref: str, runner: Runner = _run_cli) -> bool:
+    try:
+        kaggle(["datasets", "status", ref], runner)
+    except KaggleError:
+        return False
+    return True
+
+
+def upload_dataset(
+    folder: Path,
+    ref: str,
+    runner: Runner = _run_cli,
+    probe: Prober = anonymous_status,
+    wait_s: float = 600,
+) -> None:
+    """Create (or add a version of) a private dataset, wait until it's ready, check privacy.
+
+    Kaggle makes datasets private unless --public is passed, and kaggle() refuses
+    that flag. The anonymous check afterwards confirms it.
+    """
+    if dataset_exists(ref, runner):
+        kaggle(["datasets", "version", "-p", str(folder), "-m", "batch", "-q"], runner)
+    else:
+        kaggle(["datasets", "create", "-p", str(folder), "-q"], runner)
+    deadline = time.monotonic() + wait_s
+    while "ready" not in kaggle(["datasets", "status", ref], runner).lower():
+        if time.monotonic() > deadline:
+            raise KaggleError(f"dataset {ref} not ready after {wait_s:.0f}s")
+        time.sleep(10)
+    check_not_public(f"https://www.kaggle.com/api/v1/datasets/view/{ref}", probe)
+
+
+def delete_dataset(ref: str, runner: Runner = _run_cli) -> None:
+    kaggle(["datasets", "delete", ref, "-y"], runner)

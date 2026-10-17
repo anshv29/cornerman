@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from cornerman.remote.kaggle import (
+    KaggleError,
     PrivacyError,
     build_kernel,
     check_args,
@@ -102,3 +103,59 @@ def test_every_kernel_in_the_repo_is_private() -> None:
     assert found, "expected at least one kernel under kaggle/"
     for path in found:
         check_kernel_metadata(json.loads(path.read_text()))
+
+
+def test_anonymous_200_means_public() -> None:
+    from cornerman.remote.kaggle import check_not_public
+
+    with pytest.raises(PrivacyError):
+        check_not_public("https://x", probe=lambda url: 200)
+    check_not_public("https://x", probe=lambda url: 403)
+    check_not_public("https://x", probe=lambda url: 404)
+
+
+def test_push_fails_if_kernel_is_visible_anonymously(tmp_path: Path) -> None:
+    folder = _kernel(tmp_path / "k", is_private=True)
+
+    def runner(args: Sequence[str]) -> str:
+        if args[:2] == ["kernels", "pull"]:
+            _kernel(Path(args[args.index("-p") + 1]), is_private=True)
+        return ""
+
+    with pytest.raises(PrivacyError):
+        push_kernel(folder, runner, probe=lambda url: 200)
+    push_kernel(folder, runner, probe=lambda url: 404)
+
+
+def test_metadata_override_cannot_make_kernel_public(tmp_path: Path) -> None:
+    src = _kernel(tmp_path / "src", is_private=True)
+    with pytest.raises(PrivacyError):
+        build_kernel(src, tmp_path / "out", {"URLS": []}, metadata={"is_private": False})
+    out = build_kernel(
+        src, tmp_path / "out", {"URLS": []}, metadata={"dataset_sources": ["me/videos"]}
+    )
+    meta = json.loads((out / "kernel-metadata.json").read_text())
+    assert meta["dataset_sources"] == ["me/videos"]
+    assert meta["is_private"] is True
+
+
+def test_dataset_upload_is_private_and_checked(tmp_path: Path) -> None:
+    from cornerman.remote.kaggle import upload_dataset
+
+    calls: list[Sequence[str]] = []
+
+    def runner(args: Sequence[str]) -> str:
+        calls.append(args)
+        if list(args[:2]) == ["datasets", "status"]:
+            if len(calls) == 1:
+                raise KaggleError("not found")  # first status: dataset doesn't exist yet
+            return "ready"
+        return ""
+
+    upload_dataset(tmp_path, "me/videos", runner, probe=lambda url: 403)
+    assert ["datasets", "create", "-p", str(tmp_path), "-q"] in [list(c) for c in calls]
+    assert not any("-u" in c or "--public" in c for c in calls)
+
+    calls.clear()
+    with pytest.raises(PrivacyError):
+        upload_dataset(tmp_path, "me/videos", runner, probe=lambda url: 200)

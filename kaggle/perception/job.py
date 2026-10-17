@@ -61,6 +61,8 @@ def write_config() -> Path:
         "quarantine": str(WORK / "quarantine"),
         "raw": str(TMP / "raw"),
         "manifest": str(manifest),
+        # Videos staged in the private dataset, when the batch used one.
+        "video_source": "/kaggle/input",
     }
     path = TMP / "config.yaml"
     path.write_text(yaml.safe_dump(config))

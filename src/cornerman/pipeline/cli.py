@@ -21,7 +21,7 @@ from cornerman.config import load_settings
 from cornerman.pipeline.runner import run
 from cornerman.pipeline.stage import Stage
 from cornerman.pipeline.stages import PIPELINE
-from cornerman.remote import batch, kaggle
+from cornerman.remote import batch, kaggle, videos
 
 KAGGLE_BUILD = Path("kaggle/build")
 PERCEPTION_KERNEL = Path("kaggle/perception")
@@ -69,6 +69,13 @@ def main(argv: list[str] | None = None) -> int:
         "--fight", action="append", default=[], help="these fights, even if already done"
     )
     p_batch.add_argument("--overlays", type=int, default=0)
+    p_batch.add_argument(
+        "--source",
+        choices=["dataset", "youtube"],
+        default="dataset",
+        help="dataset: download here and upload a private Kaggle dataset (YouTube blocks "
+        "Kaggle after a few downloads); youtube: the job downloads itself",
+    )
     p_import = kg.add_parser("import", help="pull the GPU job's output into data/")
     p_import.add_argument("--data", type=Path, default=Path("data"))
     p_import.add_argument(
@@ -125,8 +132,14 @@ def _collect(config: Path) -> int:
     return 0
 
 
-def _push(folder: Path, values: dict[str, object]) -> None:
-    built = kaggle.build_kernel(folder, KAGGLE_BUILD / folder.name, values)
+def _kaggle_user() -> str:
+    return str(kaggle.read_kernel_metadata(PERCEPTION_KERNEL)["id"]).split("/")[0]
+
+
+def _push(
+    folder: Path, values: dict[str, object], metadata: dict[str, object] | None = None
+) -> None:
+    built = kaggle.build_kernel(folder, KAGGLE_BUILD / folder.name, values, metadata)
     print(kaggle.push_kernel(built))
     print(f"pushed {kaggle.read_kernel_metadata(folder)['id']}, confirmed private on Kaggle")
 
@@ -142,7 +155,16 @@ def _kaggle(args: argparse.Namespace) -> int:
             print("no fights to run")
             return 1
         print(f"{len(chosen)} fights: {', '.join(chosen['fight_id'])}")
-        _push(PERCEPTION_KERNEL, batch.build_values(chosen, args.config, args.overlays))
+        values = batch.build_values(chosen, args.config, args.overlays)
+        metadata: dict[str, object] = {}
+        if args.source == "dataset":
+            settings = load_settings(args.config)
+            ref = videos.stage_and_upload(
+                chosen, _kaggle_user(), Path("data/raw/upload"), settings.perception.max_height
+            )
+            print(f"uploaded {len(chosen)} videos to {ref}, confirmed private")
+            metadata["dataset_sources"] = [ref]
+        _push(PERCEPTION_KERNEL, values, metadata)
         return 0
     if args.kaggle_command == "import":
         data: Path = args.data
@@ -151,6 +173,10 @@ def _kaggle(args: argparse.Namespace) -> int:
         derived: Path = args.derived or data / "derived"
         done = batch.import_outputs(src, derived, data / "overlays", data / "logs")
         print(f"imported {len(done)} finished fights")
+        ref = videos.dataset_ref(_kaggle_user())
+        if kaggle.dataset_exists(ref):
+            kaggle.delete_dataset(ref)
+            print(f"deleted {ref}, so no raw video stays on Kaggle")
         return 0
     folder: Path = args.folder
     ref = str(kaggle.read_kernel_metadata(folder)["id"])
@@ -171,6 +197,8 @@ def _metrics(derived: Path, fps: float) -> int:
     rows: list[dict[str, object]] = []
     for fid in sorted(batch.done_fights(derived)):
         d = derived / fid
+        if not (d / "tracking" / "frames.parquet").exists():
+            continue  # stub pipeline output, e.g. the fixture fight
         m = fight_metrics(
             frames=pd.read_parquet(d / "tracking" / "frames.parquet"),
             tracks=pd.read_parquet(d / "tracking" / "tracks.parquet"),
