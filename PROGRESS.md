@@ -2,7 +2,8 @@
 
 ## Needs Ansh
 
-1. **A free DVC remote (not blocking).** Ansh said on 2026-10-17 this can wait. Recommended: DagsHub (free, no card). Sign up at https://dagshub.com with GitHub, connect the `anshv29/cornerman` repo, then share the DVC remote URL and an access token with the agent, for example by putting the token in a gitignored `.env` file. Until then the DVC cache lives only on this laptop.
+1. **Kaggle login expired (blocks GPU runs).** The OAuth session from `kaggle auth login` ran out on 2026-10-17. Run `uvx --from kaggle==2.2.4 kaggle auth login` on the laptop (in Claude Code: `! uvx --from kaggle==2.2.4 kaggle auth login`) and finish the browser step. Then the 3 blocked pilot fights can run: `uv run cornerman kaggle batch --fight ft_a8bf4f59c3 --fight ft_b8991792ed --fight ft_c816f513c5 --overlays 1`.
+2. **A free DVC remote (not blocking).** Ansh said on 2026-10-17 this can wait. Recommended: DagsHub (free, no card). Sign up at https://dagshub.com with GitHub, connect the `anshv29/cornerman` repo, then share the DVC remote URL and an access token with the agent, for example by putting the token in a gitignored `.env` file. Until then the DVC cache lives only on this laptop.
 
 ## Kaggle setup (done 2026-10-17)
 - Account `anshvaishnav29`, phone verified, so notebooks get GPU and internet.
@@ -41,20 +42,31 @@ $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs
 - YouTube blocked Kaggle after 2 downloads, so batches now download on the laptop, upload one private dataset, delete local copies, and `import` deletes the dataset.
 - Pilot: 2 fights processed (the other 3 of the first batch were blocked by YouTube). Health numbers per fight: both fighters boxed in 67% and 69% of live frames, 3.8 and 2.4 role switches per minute, median keypoint confidence 0.87 and 0.85.
 - Speed pass (FP16, prefetching, bigger batches, two GPUs): 0.42 to 1.15 footage minutes per session minute; per fight 1.38x to 1.53x faster. Outputs match the FP32 run (99.4% boxes matched, median IoU 0.997, keypoints 0.24 px apart at the median). Details in DECISIONS.md.
-- Docs: LEARNING.md sections 8 to 15. 114 tests, all passing.
+- Second speed pass (laptop-tested, not yet run on Kaggle): each video decoded once into a frame cache next to the raw video; shot detection at about 25 fps. Tracking and pose were already at 10 fps.
+- Cage mask (people must stand on the canvas; per-shot canvas colour) and a motion-based fighting filter (walk-outs, breaks and announcements out; 9.3 and 9.5 minutes of fighting on the pilot fights). Pose runs only on fighting frames.
+- Docs: LEARNING.md sections 8 to 18.
 
 ## Shaky or worth a second look
-- **Perception weak spots seen in the pilot overlays.** In clinches against the fence the detector often draws one box around both fighters (the main reason both fighters are boxed only about two thirds of the time). The "referee" group picks up officials, photographers and spectators outside the cage. Walk-outs and between-round footage count as live (live share 95 to 100%). All need Phase 2 numbers before fixing.
-- **Identity is unstable on 2 to 3% of boxes**: the FP16 rerun changed the role of that share even though boxes barely moved. Fighter A and B are also not yet linked to names; IMMAF uses red and blue kits, which should make that easy.
-- **Throughput is still too low for 1000 fights on free quota**: about 200 session hours at the current rate. Next targets by measured stage time: shot detection (4 to 5 minutes per fight, mostly decoding every frame) and decoding each video three times.
+- **Top perception issue for Phase 3: clinch box-merging.** In clinches, against the fence and on the ground, the detector often draws one box around both fighters, so both fighters are boxed in only 67 to 69% of live frames on the pilot. Everything downstream (identity, pose, state) inherits it. First thing to try: the RF-DETR segmentation variant (Apache 2.0, same family as our detector), whose per-person masks separate tangled bodies better than boxes. Measure it against the Phase 2 gold set, split by state (standing, clinch, ground).
+- **Identity is wrong on the pilot fight, and it decides whether the 50-fight run is useful** (see DECISIONS.md, "Identity is the blocker"). Colour clustering can't separate IMMAF's mostly black kits (red or blue trim) from each other or from the referee's black uniform. Three cheap feature and naming changes didn't fix it and were reverted. Needs Ansh's call, below.
+- **Cage mask misses**: a person outside the cage but close to the camera (a cornerman in a cageside shot) overlaps the canvas in the image and is kept. A white or grey canvas (other promotions) falls back to plain colour distance, untested.
+- **Fighting filter** is tuned on 2 fights (threshold 0.2 box heights per second gives 9.3 and 9.5 minutes). It should be checked on the 50 against each fight's round count, once results are scraped.
+- **Throughput:** 1.15 footage minutes per Kaggle session minute before the decode-once change, which should save roughly 400 to 500 s per fight but is not yet measured on Kaggle. Ansh's call: enough for the 74 IMMAF fights; no more speed work for now.
 - **YouTube may block the laptop too** if batches get large. One transient download failure happened; downloads now retry once.
 - The stage code hash doesn't see changes in helper functions. Each stage has a manual `version` string to bump. Hashing the whole module would be stricter.
 - Plug-in empirical Bayes ignores uncertainty in alpha and pi. Fine with hundreds of fighters, too narrow with few. Full Bayes comes in Tier 1.
 - The first `pre-commit` run on a new machine downloads Go to build gitleaks, which takes a minute or two.
 
+## Decision for Ansh: identity before the 50-fight run
+Pose runs only on boxes labelled as fighters, so running 50 fights with the current identity would compute poses for the wrong people, and they'd need redoing. Proposed fix, cheap and testable on the laptop:
+1. Run pose on every person on the canvas (fighters, referee, the odd cornerman), not just labelled fighters. With the cage mask that's about 2.5 people per frame instead of 2, so pose takes roughly a quarter longer.
+2. Store a small colour sample at the keypoints where corner colours live: wrists (gloves), ankles and shins (guards), hips (shorts).
+3. Assign identity afterwards, on the laptop, from those samples: the referee has no gloves, and red and blue gloves and guards separate the corners. This also links fighter A/B to the red/blue corner, so to the names.
+Identity can then be redone offline as often as needed, without GPU time. The alternative is to run the 50 now with the current identity and accept a pose rerun later.
+
 ## Next
-1. Finish Phase 1: run the 3 pilot fights YouTube blocked (`cornerman kaggle batch --n 3 --overlays 1`), so the pilot covers 5 fights as the spec asks.
-2. A second speed pass before scaling (decode once for tracking and pose; cheaper shot detection), measured against the numbers above.
+1. Kaggle login (Needs Ansh 1), then run the 3 blocked pilot fights. They'll use the new code (decode once, cage mask, fighting filter), which also measures the decode-once saving on Kaggle.
+2. Identity, per Ansh's decision above.
 3. Then 50 fights (hard rule 10), then Phase 2: the automated gold set.
 4. MLflow comes later, before the first real model fit (Phase 4).
 
@@ -63,4 +75,6 @@ $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs
 - **Fight results before Tier 3.** Result, method, round/time and weight class are empty because IMMAF's YouTube descriptions don't include them. Scrape them from IMMAF's website (check its terms first) before Tier 3, where the simulator and Elo baseline need outcomes.
 
 ## Blocked
-- Nothing blocking. Pushing derived data off the laptop waits on a DVC remote, which Ansh has said can wait.
+- GPU runs: Kaggle login expired (Needs Ansh 1).
+- The 50-fight run: waits on the identity decision above.
+- Pushing derived data off the laptop waits on a DVC remote, which Ansh has said can wait.

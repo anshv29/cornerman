@@ -17,7 +17,7 @@ Tier 0 (foundation) is done. Tier 1 Phase 1 (data and perception skeleton) is mo
   | ft_97394d8b1a | 67% | 3.8 | 0.87 |
   | ft_9eec213a59 | 69% | 2.4 | 0.85 |
 
-  Known weak spots: in clinches against the fence the detector often draws one box around both fighters; the "referee" group picks up officials and spectators outside the cage; walk-outs count as live footage.
+  Known weak spots: in clinches the detector often draws one box around both fighters; identity (fighter A, fighter B, referee) is unreliable when both kits and the referee's uniform are mostly black. A cage mask (people must stand on the canvas) and a motion filter for walk-outs and breaks have been added since the pilot; see [DECISIONS.md](DECISIONS.md).
 - **Throughput.** 1.15 minutes of footage per minute of a Kaggle T4 x2 session, after an FP16 and two-GPU speed pass (0.42 before). Outputs before and after agree: 99.4% of boxes matched with median IoU 0.997, keypoints 0.24 px apart at the median. Details in [DECISIONS.md](DECISIONS.md).
 - **Foundation (Tier 0).** Pipeline runner with content-hash caching and quarantine, pandera data contracts, DVC for derived data, and a parameter recovery harness (coverage and simulation-based calibration) proven on a hierarchical Dirichlet-multinomial model.
 - CI on every push: ruff, pyright (strict), pytest on Python 3.12 and 3.13, and a secret scan of the full git history.

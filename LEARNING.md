@@ -306,3 +306,58 @@ A smoke test showed YouTube doesn't block downloads from Kaggle, so the job down
 1. *Why did the role agreement come out at 97 to 98% when boxes agreed at 99.5%?* Identity is a global clustering over all tracklets. A tracklet near the boundary between two groups can flip when its features move by a rounding error. So the 2 to 3% is a measure of how unstable identity is, not of FP16 damage. It's a useful number in its own right: it marks the share of boxes whose role we shouldn't trust.
 2. *Why not torch.compile or TensorRT?* Both give more speed but take minutes to build per session and are fussy about variable batch shapes. They're worth it once the pipeline stops changing; FP16 was a one-line change with a measurable check.
 3. *How would you find the next bottleneck?* The runner now records each stage's wall time. Shot detection takes 4 to 5 minutes, mostly decoding every frame of a 50 fps video to feed a model that only needs 48x27 images, so that's the next target, followed by decoding the video once instead of three times.
+
+---
+
+## 16. Decoding each video once
+
+**Problem.** Three stages (shots, tracking, pose) each read the video. Even though tracking and pose only use every 5th frame, a compressed video can't be read that way cheaply: H.264 stores most frames as differences from earlier ones, so to show frame 500 the decoder has to decode the frames it depends on, which in practice means all of them. Each read was a full decode.
+
+**How we found it.** We timed it instead of guessing. A software decode of one 14-minute 720p50 fight took 164 s on the laptop with every core and 268 s on 2 threads, which matched the shots stage's 210 to 300 s on Kaggle. A first measurement with OpenCV on the Mac said 20 s, which would have pointed the other way: it was using the Mac's hardware video decoder, which Kaggle machines don't have. Lesson: measure on hardware like the target's, or measure the specific thing (software decoding) the target will do.
+
+**How it works.** One ffmpeg process decodes the video once and splits the stream in two (a `split` filter). One branch keeps every 2nd frame and shrinks it to 48x27 for the shot model. The other keeps every 5th frame at full size and writes it as a high-quality JPEG named by frame index. A small meta file records the settings; if they change, the cache is rebuilt. The cache sits next to the raw video and is deleted with it, so it never becomes stored data.
+
+**What breaks it.** Disk: about 1.6 GB of JPEGs per fight, twice that with two fights in parallel. JPEG re-encoding changes pixels slightly, so outputs differ a little from decoding directly (the compare tool measures that). If a later stage reruns after the raw folder was deleted, the video is fetched and decoded again.
+
+**Interview questions.**
+1. *Why not just seek to every 5th frame?* Seeking jumps to the nearest keyframe, often seconds away, and decodes forward from there; for every 5th frame that's more work, not less.
+2. *Why JPEG and not keep frames in memory?* 8,260 full frames at 1280x720 is about 23 GB raw. JPEG at high quality is around 200 KB a frame, and encoding runs in parallel with decoding.
+3. *Why was downsampling shot detection a small win?* It halves the shot model's work, but the expensive part was decoding, and you can't decode half a video.
+
+---
+
+## 17. Cage mask
+
+**Problem.** People outside the cage (officials, photographers, spectators standing up, cornermen at the fence) are big enough in the frame to pass the size filter, and the clustering put them in the "referee" group.
+
+**Why this approach.** The physical rule is simple: everyone who matters is standing on the canvas. So find the canvas in each frame and keep people whose feet are on it. Colour is enough to find the canvas because it's one large, uniformly coloured surface, which is much cheaper than training a segmentation model.
+
+**How it works.**
+1. *Canvas colour.* In a band across the lower middle of ~60 frames, take the most common bright colour. The band avoids the broadcast score bar at the bottom; "bright" avoids the dark arena; "most common" rather than median avoids the fighters standing in the middle.
+2. *Per camera.* Different cameras see the canvas differently (white balance), so each shot learns its own colour from its own frames, trusted only if it's near the fight-wide colour. This took frames-without-canvas from 42% to 3% on the pilot.
+3. *Canvas area per frame.* At 160x90, mark pixels near that colour, comparing only chroma (the a and b channels of Lab), since brightness varies with exposure much more than hue does. Close the holes left by logos and legs, keep the large regions, take the convex hull.
+4. *Inside test.* The bottom-centre of a person's box (their feet) must be within a small margin of the hull. If the box reaches the bottom of the frame, the feet are hidden, so any point across the box's width just above the score-bar line counts.
+
+**What breaks it.** Someone outside the cage but close to the camera, overlapping the canvas in the image, is kept. A white or grey canvas has no chroma to match, so it falls back to full colour distance, which is more fragile under lighting changes. A fighter lifted off the canvas in a slam is briefly dropped.
+
+**Interview questions.**
+1. *Why chroma and not full colour?* The pilot's cageside camera saw the canvas at about a third of the main camera's brightness but a similar hue. Ignoring lightness made the match survive exposure changes.
+2. *Why a convex hull?* Fighters, logos and the referee cover parts of the canvas, which would punch holes in the region. The canvas is convex in the image (a polygon seen in perspective), so the hull fills those holes.
+3. *How did you check it without labels?* By looking at frames (walk-outs and spectators dropped, fighters kept) and by counting how many boxes the previous run had labelled as fighters that survive (87%, with the rest including outsiders the old run mislabelled).
+
+---
+
+## 18. Fighting time: filtering walk-outs, breaks and announcements
+
+**Problem.** Fight videos include the walk-out, the referee's instructions, a minute between rounds and the result announcement. None of it is fighting, but all of it looked "live" (two big people on screen), so it inflated counts and wasted pose time.
+
+**Why this approach.** We looked at the pilot data first. During rounds the fighters' boxes move 0.3 to 0.6 box heights per second; in breaks they sit on stools at about 0.1. Motion is free (it comes from the tracks) and doesn't depend on the camera or the event's graphics. Reading the round clock from the broadcast graphic would be more exact but needs OCR tuned per event.
+
+**How it works.** Per sampled frame, the fighters' mean speed in box heights per second (so it doesn't depend on zoom). A 10 s centred rolling median smooths over still moments inside a round. Frames at or above 0.2 in a live shot are fighting. Then gaps shorter than 8 s between fighting stretches are filled (a stoppage, a clinch where the detector merges both fighters into one box) and fighting stretches shorter than 15 s are dropped. The check is the total: three 3-minute rounds should give a bit over 9 minutes, and the pilot fights gave 9.3 and 9.5, with segments lining up with the rounds.
+
+**What breaks it.** A long stalled clinch against the fence (slow, and often one merged box) can be cut out. Fighters bouncing in place during instructions can be counted. The threshold was set on two fights and needs checking against round counts on more.
+
+**Interview questions.**
+1. *Why speed in box heights per second?* Pixels per second depend on how far the camera is zoomed in; dividing by the person's box height makes the number roughly the same for a wide shot and a close-up.
+2. *Why a median and not a mean?* One fast moment (a single punch) or one tracking glitch shouldn't flip a whole window. The median needs most of the window to be moving.
+3. *How would you validate it properly?* Against the round clock: once results are scraped (they include the round and time of a finish), and with OCR of the broadcast clock on a sample of fights, compare predicted fighting time with the true round time.
