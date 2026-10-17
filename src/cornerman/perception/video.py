@@ -6,8 +6,11 @@ later rerun needs frames after the file was deleted.
 """
 
 import json
+import queue
+import shutil
 import subprocess
 import sys
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -115,3 +118,52 @@ def iter_frames(
             idx += 1
     finally:
         cap.release()
+
+
+_DONE = object()
+
+
+def prefetch[T](items: Iterator[T], depth: int) -> Iterator[T]:
+    """Run an iterator on a background thread, keeping up to `depth` items ready.
+
+    Decoding video is CPU work and inference is GPU work; this lets them overlap
+    instead of taking turns. OpenCV releases the GIL while decoding, so a
+    thread is enough.
+    """
+    if depth <= 0:
+        yield from items
+        return
+    q: queue.Queue[object] = queue.Queue(maxsize=depth)
+    errors: list[BaseException] = []
+
+    def work() -> None:
+        try:
+            for item in items:
+                q.put(item)
+        except BaseException as e:  # re-raised in the consumer
+            errors.append(e)
+        finally:
+            q.put(_DONE)
+
+    threading.Thread(target=work, daemon=True).start()
+    while (item := q.get()) is not _DONE:
+        yield item  # pyright: ignore[reportReturnType]
+    if errors:
+        raise errors[0]
+
+
+def small_frames_rgb(path: Path, size: tuple[int, int]) -> np.ndarray:
+    """Every frame, shrunk to (w, h), as an (n, h, w, 3) RGB array.
+
+    Uses ffmpeg when it's installed (multi-threaded decode and scale, and the
+    same scaling TransNetV2 was trained with), otherwise OpenCV.
+    """
+    w, h = size
+    if shutil.which("ffmpeg"):
+        cmd = [
+            "ffmpeg", "-loglevel", "error", "-i", str(path),
+            "-vf", f"scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:",
+        ]  # fmt: skip
+        raw = subprocess.run(cmd, capture_output=True, check=True).stdout
+        return np.frombuffer(raw, np.uint8).reshape(-1, h, w, 3)
+    return np.stack([f[:, :, ::-1] for _, f in iter_frames(path, size=size)])

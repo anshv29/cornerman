@@ -1,5 +1,7 @@
 """Perception logic that runs without models: shots, colour features, identity, metrics."""
 
+from collections.abc import Iterator
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -148,3 +150,17 @@ def test_role_switch_is_counted() -> None:
         for f, (x, y) in enumerate(pts)
     ]
     assert role_switches(pd.DataFrame(rows)) == 1
+
+
+def test_prefetch_keeps_order_and_raises() -> None:
+    from cornerman.perception.video import prefetch
+
+    assert list(prefetch(iter(range(100)), depth=4)) == list(range(100))
+    assert list(prefetch(iter(range(5)), depth=0)) == list(range(5))
+
+    def broken() -> Iterator[int]:
+        yield 1
+        raise ValueError("decode failed")
+
+    with pytest.raises(ValueError, match="decode failed"):
+        list(prefetch(broken(), depth=2))

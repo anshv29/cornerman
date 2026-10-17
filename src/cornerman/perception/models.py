@@ -11,7 +11,7 @@ from typing import Any, cast
 import numpy as np
 
 from cornerman.perception.shots import TRANSNET_SIZE
-from cornerman.perception.video import Frame, iter_frames
+from cornerman.perception.video import Frame, small_frames_rgb
 
 PERSON = 1
 """COCO class ID for person in RF-DETR's label map."""
@@ -39,7 +39,7 @@ def cut_probabilities(path: Path, device: str) -> np.ndarray:
     import torch
 
     model = _transnet(device)
-    frames = np.stack([f[:, :, ::-1] for _, f in iter_frames(path, size=TRANSNET_SIZE)])
+    frames = small_frames_rgb(path, TRANSNET_SIZE)
     x = torch.from_numpy(np.ascontiguousarray(frames)).to(model.device)  # pyright: ignore[reportUnknownMemberType]
     with torch.no_grad():
         single, _ = model.predict_frames(x, quiet=True)
@@ -47,18 +47,23 @@ def cut_probabilities(path: Path, device: str) -> np.ndarray:
 
 
 @cache
-def _detector(name: str) -> Any:
+def _detector(name: str, half: bool) -> Any:
+    import torch
     from rfdetr import RFDETRLarge, RFDETRMedium
 
     models: dict[str, Any] = {"rfdetr-large": RFDETRLarge, "rfdetr-medium": RFDETRMedium}
-    return models[name]()
+    model = models[name]()
+    if half and torch.cuda.is_available():
+        # compile=False: batches vary in size (the last one of a fight is short).
+        model.inference(compile=False, dtype=torch.float16, inplace=True)
+    return model
 
 
 def detect_people(
-    frames: list[Frame], name: str, threshold: float
+    frames: list[Frame], name: str, threshold: float, half: bool = False
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """For each BGR frame: (boxes as x1 y1 x2 y2, confidences) for people only."""
-    model = _detector(name)
+    model = _detector(name, half)
     rgb = [np.ascontiguousarray(f[:, :, ::-1]) for f in frames]
     preds = model.predict(rgb, threshold=threshold)
     if not isinstance(preds, list):
@@ -110,12 +115,14 @@ class ShotTracker:
 
 
 @cache
-def _pose(name: str, revision: str, device: str) -> tuple[Any, Any]:
+def _pose(name: str, revision: str, device: str, half: bool) -> tuple[Any, Any]:
+    import torch
     from transformers import AutoProcessor, VitPoseForPoseEstimation
 
     processor = cast(Any, AutoProcessor.from_pretrained(name, revision=revision))  # pyright: ignore[reportUnknownMemberType]
     model: Any = VitPoseForPoseEstimation.from_pretrained(name, revision=revision)  # pyright: ignore[reportUnknownMemberType]
-    return processor, model.to(device).eval()
+    dtype = torch.float16 if half and device.startswith("cuda") else torch.float32
+    return processor, model.to(device=device, dtype=dtype).eval()
 
 
 def estimate_poses(
@@ -124,19 +131,23 @@ def estimate_poses(
     name: str,
     revision: str,
     device: str,
+    half: bool = False,
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """For each frame and its boxes (x1 y1 x2 y2): keypoints (n, 17, 2) and scores (n, 17)."""
     import torch
     from PIL import Image
 
-    processor, model = _pose(name, revision, device)
+    processor, model = _pose(name, revision, device, half)
     images = [Image.fromarray(np.ascontiguousarray(f[:, :, ::-1])) for f in frames]
     coco = [np.column_stack([b[:, :2], b[:, 2:] - b[:, :2]]).tolist() for b in boxes]
     inputs = processor(images, boxes=coco, return_tensors="pt").to(device)
+    inputs["pixel_values"] = inputs["pixel_values"].to(model.dtype)
     n_boxes = sum(len(b) for b in boxes)
     index = torch.full((n_boxes,), COCO_DATASET_INDEX, dtype=torch.long, device=device)
     with torch.no_grad():
         outputs = model(**inputs, dataset_index=index)
+    # Heatmap peak finding in FP32, so FP16 only affects the network itself.
+    outputs.heatmaps = outputs.heatmaps.float()
     results = processor.post_process_pose_estimation(outputs, boxes=coco)
     out: list[tuple[np.ndarray, np.ndarray]] = []
     for per_image in results:

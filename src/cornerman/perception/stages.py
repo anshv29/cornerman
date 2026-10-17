@@ -26,6 +26,7 @@ from cornerman.perception.video import (
     ensure_video,
     frame_step,
     iter_frames,
+    prefetch,
     probe,
 )
 from cornerman.pipeline.hashing import hash_file
@@ -91,10 +92,11 @@ def tracking(ctx: StageContext) -> None:
     rows: list[dict[str, object]] = []
     feats: list[np.ndarray] = []
     sampled: list[tuple[int, int]] = []
-    for batch in _batched(iter_frames(path, step=step), p.det_batch):
+    frames_in = prefetch(iter_frames(path, step=step), p.prefetch)
+    for batch in _batched(frames_in, p.det_batch):
         idx = np.array([i for i, _ in batch])
         shot_ids = shot_of_frame(shot_df, idx)
-        dets = models.detect_people([f for _, f in batch], p.detector, p.det_threshold)
+        dets = models.detect_people([f for _, f in batch], p.detector, p.det_threshold, p.half)
         for (i, frame), shot_id, (boxes, conf) in zip(batch, shot_ids, dets, strict=True):
             sampled.append((i, int(shot_id)))
             if shot_id < 0:
@@ -168,13 +170,15 @@ def pose(ctx: StageContext) -> None:
     path = ensure_video(ctx.settings, ctx.fight_id)
     device = models.pick_device(p.device)
 
-    wanted = (item for item in iter_frames(path, step=step) if item[0] in by_frame)
+    wanted = prefetch(
+        (item for item in iter_frames(path, step=step) if item[0] in by_frame), p.prefetch
+    )
     rows: list[pd.DataFrame] = []
     for batch in _batched(wanted, p.pose_batch):
         groups = [by_frame[i] for i, _ in batch]
         xyxy = [g[["x1", "y1", "x2", "y2"]].to_numpy(dtype=float) for g in groups]
         results = models.estimate_poses(
-            [f for _, f in batch], xyxy, p.pose_model, p.pose_revision, device
+            [f for _, f in batch], xyxy, p.pose_model, p.pose_revision, device, p.half
         )
         for (i, _), g, (kps, scores) in zip(batch, groups, results, strict=True):
             for role, k, s in zip(g["role"], kps, scores, strict=True):
@@ -211,6 +215,7 @@ REAL_PIPELINE: list[Stage] = [
             "perception.detector",
             "perception.det_threshold",
             "perception.min_person_height",
+            "perception.half",
         ),
     ),
     Stage(
@@ -227,7 +232,12 @@ REAL_PIPELINE: list[Stage] = [
         "pose",
         pose,
         deps=("ingest", "tracking", "identity"),
-        config_keys=("perception.fps", "perception.pose_model", "perception.pose_revision"),
+        config_keys=(
+            "perception.fps",
+            "perception.pose_model",
+            "perception.pose_revision",
+            "perception.half",
+        ),
     ),
 ]
 

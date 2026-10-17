@@ -42,10 +42,15 @@ class PerceptionConfig(BaseModel):
     fps: float = Field(default=10.0, gt=0)
     """Frames per second sampled for detection, tracking and pose."""
     device: str = "auto"
+    half: bool = False
+    """Run the detector and pose model in FP16 on the GPU. About twice as fast on a T4;
+    outputs differ from FP32 only by rounding (checked with `cornerman compare`)."""
     shot_threshold: float = Field(default=0.5, gt=0, lt=1)
     detector: str = "rfdetr-large"
     det_threshold: float = Field(default=0.4, gt=0, lt=1)
     det_batch: int = Field(default=8, ge=1)
+    prefetch: int = Field(default=64, ge=0)
+    """Frames decoded ahead on a background thread while the GPU works. 0 turns it off."""
     min_person_height: float = Field(default=0.2, gt=0, lt=1)
     """Boxes shorter than this fraction of the frame are crowd or corner staff."""
     min_track_frames: int = Field(default=5, ge=1)

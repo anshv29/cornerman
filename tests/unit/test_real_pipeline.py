@@ -47,7 +47,7 @@ def _fake_cuts(path: Path, device: str) -> np.ndarray:
 
 
 def _fake_detect(
-    frames: list[np.ndarray], name: str, threshold: float
+    frames: list[np.ndarray], name: str, threshold: float, half: bool = False
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     out: list[tuple[np.ndarray, np.ndarray]] = []
     for frame in frames:
@@ -62,7 +62,12 @@ def _fake_detect(
 
 
 def _fake_pose(
-    frames: list[np.ndarray], boxes: list[np.ndarray], name: str, revision: str, device: str
+    frames: list[np.ndarray],
+    boxes: list[np.ndarray],
+    name: str,
+    revision: str,
+    device: str,
+    half: bool = False,
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     out: list[tuple[np.ndarray, np.ndarray]] = []
     for b in boxes:
