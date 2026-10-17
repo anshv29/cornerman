@@ -1,0 +1,15 @@
+# Footage collection. Metadata only; video is downloaded later, inside the
+# private Kaggle job. Output CSVs stay local (data/ is allow-list only).
+seed: 0
+collect:
+  min_height: 480
+  meta_dir: data/meta
+  fights_csv: data/fights.csv
+  fighters_csv: data/fighters.csv
+  skipped_csv: data/skipped.csv
+  sources:
+    # International Mixed Martial Arts Federation, the amateur world body.
+    # Its official channel posts complete amateur bouts from its championships.
+    - name: immaf
+      channel_url: https://www.youtube.com/channel/UCMNav5jd07xYiCGOnjD6M3A
+      title_contains: FULL FIGHT

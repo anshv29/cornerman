@@ -28,6 +28,26 @@ class StubConfig(BaseModel):
     events_per_minute: float = Field(default=12.0, gt=0)
 
 
+class SourceConfig(BaseModel):
+    """One public channel of amateur fights."""
+
+    name: str
+    channel_url: str
+    title_contains: str = "FULL FIGHT"
+    """Only uploads whose title has this text are single, complete fights."""
+
+
+class CollectConfig(BaseModel):
+    """Footage collection: where fights come from and what gets kept."""
+
+    sources: list[SourceConfig] = Field(default_factory=list[SourceConfig])
+    min_height: int = Field(default=480, ge=1)
+    meta_dir: Path = Path("data/meta")
+    fights_csv: Path = Path("data/fights.csv")
+    fighters_csv: Path = Path("data/fighters.csv")
+    skipped_csv: Path = Path("data/skipped.csv")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CORNERMAN_", env_nested_delimiter="__")
 
@@ -35,6 +55,7 @@ class Settings(BaseSettings):
     fights: list[str] = Field(default_factory=list)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     stub: StubConfig = Field(default_factory=StubConfig)
+    collect: CollectConfig = Field(default_factory=CollectConfig)
 
 
 def load_settings(path: Path) -> Settings:

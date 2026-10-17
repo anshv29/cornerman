@@ -1,6 +1,7 @@
 """Command line entry point.
 
 `cornerman run --config configs/fixture.yaml` runs the pipeline.
+`cornerman collect --config configs/collect.yaml` builds the local fight registry.
 `cornerman kaggle push|status|pull` drives Kaggle jobs, always through the
 privacy checks in cornerman.remote.kaggle.
 """
@@ -11,6 +12,7 @@ import logging
 from collections import Counter
 from pathlib import Path
 
+from cornerman.collect.run import collect
 from cornerman.config import load_settings
 from cornerman.pipeline.runner import run
 from cornerman.pipeline.stages import PIPELINE
@@ -29,6 +31,9 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--force", action="store_true", help="ignore the cache")
     p_run.add_argument("-v", "--verbose", action="store_true")
 
+    p_col = sub.add_parser("collect", help="fetch fight metadata and build the registry")
+    p_col.add_argument("--config", type=Path, required=True)
+
     p_kg = sub.add_parser("kaggle", help="push, check and pull private Kaggle jobs")
     kg = p_kg.add_subparsers(dest="kaggle_command", required=True)
     p_push = kg.add_parser("push", help="build a kernel folder and push it")
@@ -45,6 +50,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "kaggle":
         return _kaggle(args)
+    if args.command == "collect":
+        return _collect(args.config)
 
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING, format="%(message)s"
@@ -61,6 +68,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{r.fight_id:<24} {r.stage:<12} {r.status}")
     counts = Counter(r.status.value for r in results)
     print(", ".join(f"{n} {k}" for k, n in sorted(counts.items())))
+    return 0
+
+
+def _collect(config: Path) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    tables = collect(load_settings(config).collect)
+    repeat = int((tables.fighters["n_fights"] > 1).sum())
+    print(f"{len(tables.fights)} fights, {len(tables.fighters)} fighters ({repeat} with 2+ fights)")
+    print("skipped:")
+    print(tables.skipped["reason"].str.split(":").str[0].value_counts().to_string())
     return 0
 
 
