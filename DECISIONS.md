@@ -22,3 +22,9 @@ The spec gives one example (ground-top pairs with ground-bottom). The full pairi
 - standing-opponent-hurt with standing-neutral or standing-cage-pressured. The hurt fighter has no "hurt" state of their own, so they stay in whichever standing state they're in.
 
 This only spells out what the locked taxonomy implies. It doesn't add or remove any states.
+
+## 2026-10-17: A small custom DAG runner instead of Prefect or Dagster
+Considered: Prefect, Dagster, DVC pipelines (`dvc.yaml`), Make.
+The part we need is narrow: run stages per fight in dependency order, skip anything whose inputs haven't changed, rerun one stage for one fight, survive a killed Kaggle session, and quarantine bad fights. That fits in about 200 lines (`src/cornerman/pipeline/runner.py`), which we can test fully and explain in an interview. Prefect and Dagster bring a server, a UI and their own state store, which we don't need on a laptop or inside a Kaggle notebook. DVC pipelines cache at the whole-stage level, not per fight, so rerunning one fight would be awkward. If we later need scheduling or a UI, the stage functions can be wrapped by Prefect without changes.
+
+Cache key = hash of stage name, stage version, stage source code, the config fields the stage declares, the seed, the fight ID, external source files, and the output hashes of upstream stages. Using upstream *output* hashes (not their keys) means a stage that reruns but produces the same bytes doesn't force its downstream to rerun.
