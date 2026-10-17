@@ -110,10 +110,16 @@ def build_kernel(src: Path, dest: Path, values: Mapping[str, object]) -> Path:
     return dest
 
 
-def push_kernel(folder: Path, runner: Runner = _run_cli) -> str:
+DEFAULT_ACCELERATOR = "NvidiaTeslaT4"
+"""Asked for explicitly: a push without it once sat queued for over an hour."""
+
+
+def push_kernel(
+    folder: Path, runner: Runner = _run_cli, accelerator: str = DEFAULT_ACCELERATOR
+) -> str:
     """Push a kernel, then pull its metadata back and confirm Kaggle has it private."""
     meta = read_kernel_metadata(folder)
-    out = kaggle(["kernels", "push", "-p", str(folder)], runner)
+    out = kaggle(["kernels", "push", "-p", str(folder), "--accelerator", accelerator], runner)
     verify_kernel_private(str(meta["id"]), runner)
     return out
 
