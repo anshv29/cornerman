@@ -205,7 +205,13 @@ def upload_dataset(
     else:
         kaggle(["datasets", "create", "-p", str(folder), "-q"], runner)
     deadline = time.monotonic() + wait_s
-    while "ready" not in kaggle(["datasets", "status", ref], runner).lower():
+    while True:
+        try:
+            # Right after an upload Kaggle can answer 403 while it processes the files.
+            if "ready" in kaggle(["datasets", "status", ref], runner).lower():
+                break
+        except KaggleError:
+            pass
         if time.monotonic() > deadline:
             raise KaggleError(f"dataset {ref} not ready after {wait_s:.0f}s")
         time.sleep(10)

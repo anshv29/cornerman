@@ -10,6 +10,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -30,7 +31,12 @@ def download(url: str, dest: Path, max_height: int) -> Path:
         "-f", f"bv*[height<={max_height}][ext=mp4]/bv*[height<={max_height}]",
         "--remux-video", "mp4", "-o", str(dest.with_suffix(".%(ext)s")), url,
     ]  # fmt: skip
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        time.sleep(30)  # YouTube sometimes refuses briefly; one retry
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"download failed for {dest.stem}: {result.stderr[-800:]}")
     return dest
 
 
