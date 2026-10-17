@@ -62,7 +62,9 @@ def main() -> None:
     except ImportError:
         report["torch"] = None
     report["ffmpeg"] = shutil.which("ffmpeg")
-    report["install"] = sh([sys.executable, "-m", "pip", "install", "-q", "-U", "yt-dlp[default]"])
+    report["install"] = sh(
+        [sys.executable, "-m", "pip", "install", "-q", "-U", "yt-dlp[default]", "deno"]
+    )
     report["yt_dlp"] = sh([sys.executable, "-m", "yt_dlp", "--version"])["stdout_tail"]
     # First link: a full download (gives a speed estimate). The rest: 30 s sections.
     report["tries"] = [try_url(u, full=(i == 0)) for i, u in enumerate(VIDEO_URLS)]

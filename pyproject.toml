@@ -3,7 +3,7 @@ name = "cornerman"
 version = "0.1.0"
 description = "Learns how amateur MMA fighters fight from public footage, and simulates matchups."
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "numpy>=2.5",
     "scipy>=1.18",

@@ -23,6 +23,17 @@ jobs:
       - name: Tests
         run: uv run pytest
 
+  # Kaggle runs Python 3.13, so the package must also work there.
+  tests-py313:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+      - name: Tests on Python 3.13
+        run: uv run --locked --python 3.13 pytest
+
   secrets:
     runs-on: ubuntu-latest
     env:
