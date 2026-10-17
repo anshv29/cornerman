@@ -27,6 +27,7 @@ gpu = [
     "transnetv2-pytorch==1.0.5",
     "supervision==0.31.0",
     "opencv-python>=4.10",
+    "imageio-ffmpeg>=0.6",
     "torch>=2.6",
     "torchvision>=0.21",
 ]

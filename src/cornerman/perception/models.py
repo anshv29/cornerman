@@ -5,13 +5,11 @@ fights back to back. Choices and versions are logged in DECISIONS.md.
 """
 
 from functools import cache
-from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
 
-from cornerman.perception.shots import TRANSNET_SIZE
-from cornerman.perception.video import Frame, small_frames_rgb
+from cornerman.perception.video import Frame
 
 PERSON = 1
 """COCO class ID for person in RF-DETR's label map."""
@@ -34,12 +32,11 @@ def _transnet(device: str) -> Any:
     return TransNetV2(device=device).eval()  # pyright: ignore[reportUnknownMemberType]
 
 
-def cut_probabilities(path: Path, device: str) -> np.ndarray:
-    """Per-frame probability that a cut or transition happens, for every frame of the video."""
+def cut_probabilities(frames: np.ndarray, device: str) -> np.ndarray:
+    """Per-frame probability of a cut or transition, for (n, 27, 48, 3) RGB frames."""
     import torch
 
     model = _transnet(device)
-    frames = small_frames_rgb(path, TRANSNET_SIZE)
     x = torch.from_numpy(np.ascontiguousarray(frames)).to(model.device)  # pyright: ignore[reportUnknownMemberType]
     with torch.no_grad():
         single, _ = model.predict_frames(x, quiet=True)

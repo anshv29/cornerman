@@ -50,7 +50,8 @@ def test_box_features_separate_shorts_colours() -> None:
 def _scene(seed: int = 0) -> pd.DataFrame:
     """Three people over 4 shots; tracks restart every shot and break mid-shot.
 
-    Fighters stay about one box height apart; the referee stands about three away.
+    Fighters stay about one box height apart; the referee stands about three away
+    and is on screen less, since the camera follows the fighters.
     Each person has a distinct colour signature plus noise.
     """
     rng = np.random.default_rng(seed)
@@ -62,7 +63,9 @@ def _scene(seed: int = 0) -> pd.DataFrame:
         for person in ("A", "B", "R"):
             for piece in range(2):  # each person's shot track breaks in two
                 track += 1
-                for f in range(shot * 100 + piece * 50, shot * 100 + piece * 50 + 50):
+                # The referee steps out of shot for part of each piece.
+                length = 35 if person == "R" else 50
+                for f in range(shot * 100 + piece * 50, shot * 100 + piece * 50 + length):
                     x = 200 + offset[person] + 10 * np.sin(f / 7)
                     noisy = np.asarray(
                         np.abs(signature[person] + rng.normal(0, 0.05, N_FEATURES)),

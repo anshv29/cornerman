@@ -49,6 +49,9 @@ class PerceptionConfig(BaseModel):
     """Run the detector and pose model in FP16 on the GPU. About twice as fast on a T4;
     outputs differ from FP32 only by rounding (checked with `cornerman compare`)."""
     shot_threshold: float = Field(default=0.5, gt=0, lt=1)
+    shot_fps: float = Field(default=25.0, gt=0)
+    """Frame rate fed to shot detection. A 50 fps video is halved; cuts are still
+    sharp at 25 fps, which is close to the footage TransNetV2 was trained on."""
     detector: str = "rfdetr-large"
     det_threshold: float = Field(default=0.4, gt=0, lt=1)
     det_batch: int = Field(default=8, ge=1)
@@ -56,11 +59,28 @@ class PerceptionConfig(BaseModel):
     """Frames decoded ahead on a background thread while the GPU works. 0 turns it off."""
     min_person_height: float = Field(default=0.2, gt=0, lt=1)
     """Boxes shorter than this fraction of the frame are crowd or corner staff."""
+    mat_mask: bool = True
+    """Drop people whose feet aren't on the canvas (spectators, officials outside the cage)."""
+    mat_delta: float = Field(default=18.0, gt=0)
+    """Colour distance (Lab chroma for a coloured canvas) that still counts as canvas."""
+    mat_min_area: float = Field(default=0.05, gt=0, lt=1)
+    mat_margin: float = Field(default=0.03, ge=0)
+    """How far outside the canvas outline feet may be, as a share of frame height."""
+    mat_shot_shift: float = Field(default=45.0, ge=0)
+    """How far a shot's own canvas colour may be from the fight's before it's distrusted."""
+    mat_cut: float = Field(default=0.15, ge=0, lt=1)
+    """Boxes reaching into this bottom share of the frame have their feet hidden."""
     min_track_frames: int = Field(default=5, ge=1)
     max_role_distance: float = Field(default=0.6, gt=0)
     """Tracklets further than this (appearance distance) from every role are 'other'."""
     live_min_frac: float = Field(default=0.5, gt=0, le=1)
     """A shot is live if at least this share of its frames shows 2+ large people."""
+    fight_window_s: float = Field(default=10.0, gt=0)
+    fight_min_speed: float = Field(default=0.2, gt=0)
+    """Median fighter speed (box heights per second) that counts as fighting. On the
+    pilot, rounds ran at 0.3 to 0.6 and breaks near 0.1; 0.2 gave 9.3 and 9.5 minutes."""
+    fight_min_gap_s: float = Field(default=8.0, ge=0)
+    fight_min_run_s: float = Field(default=15.0, ge=0)
     pose_model: str = "usyd-community/vitpose-plus-large"
     pose_revision: str = "e211df377e49"
     pose_batch: int = Field(default=16, ge=1)

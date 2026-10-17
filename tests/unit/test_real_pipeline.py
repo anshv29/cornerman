@@ -24,8 +24,11 @@ FPS = 10
 N = 60
 CUT = 30
 SIZE = (320, 240)
-# BGR colours: fighter in red shorts, fighter in blue shorts, referee in grey.
+# BGR colours: fighter in red shorts, fighter in blue shorts, referee in grey,
+# all standing on a light-blue canvas, plus a green spectator off the canvas.
 PEOPLE = [((0, 0, 255), 60), ((255, 0, 0), 120), ((128, 128, 128), 240)]
+SPECTATOR = (0, 200, 0)
+CANVAS = (235, 200, 140)
 
 
 def _write_video(path: Path) -> None:
@@ -33,9 +36,12 @@ def _write_video(path: Path) -> None:
     writer = cv2.VideoWriter(str(path), cv2.VideoWriter.fourcc(*"mp4v"), FPS, SIZE)
     for f in range(N):
         frame = np.full((SIZE[1], SIZE[0], 3), 30, dtype=np.uint8)
+        frame[140:240, :] = CANVAS
+        frame[20:100, 280:300] = SPECTATOR  # feet at y=100, above the canvas
         for colour, x in PEOPLE:
-            x0 = x + int(5 * np.sin(f / 4)) + (20 if f >= CUT else 0)
-            frame[60:200, x0 : x0 + 40] = colour
+            # Fighters move like fighters (well above the fighting speed threshold).
+            x0 = x + int(25 * np.sin(f / 3)) + (20 if f >= CUT else 0)
+            frame[60:200, max(0, x0) : x0 + 40] = colour
         writer.write(frame)
     writer.release()
 
@@ -52,7 +58,7 @@ def _fake_detect(
     out: list[tuple[np.ndarray, np.ndarray]] = []
     for frame in frames:
         boxes: list[list[float]] = []
-        for colour, _ in PEOPLE:
+        for colour in [c for c, _ in PEOPLE] + [SPECTATOR]:
             mask = np.all(np.abs(frame.astype(int) - colour) < 40, axis=2)
             ys, xs = np.nonzero(mask)
             if len(xs):
@@ -93,7 +99,14 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
             manifest=tmp_path / "manifest.json",
         ),
         perception=PerceptionConfig(
-            fps=FPS, device="cpu", min_track_frames=3, det_batch=7, min_height=200
+            fps=FPS,
+            device="cpu",
+            min_track_frames=3,
+            det_batch=7,
+            min_height=200,
+            fight_window_s=1.0,
+            fight_min_gap_s=0.0,
+            fight_min_run_s=0.0,
         ),
     )
     _write_video(tmp_path / "raw" / "ft_test" / "video.mp4")
@@ -105,6 +118,12 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
     roles = pd.read_parquet(d / "identity" / "identity.parquet")
     tracks = pd.read_parquet(d / "tracking" / "tracks.parquet")
     assert tracks["shot_id"].nunique() == 2
+    # The spectator off the canvas is dropped by the cage mask, every frame.
+    assert (tracks["x1"].between(275, 305) & (tracks["y2"] <= 101)).sum() == 0
+    frames = pd.read_parquet(d / "tracking" / "frames.parquet")
+    assert (frames.loc[frames["shot_id"] >= 0, "n_dropped"] >= 1).all()
+    fighting = pd.read_parquet(d / "identity" / "fighting.parquet")
+    assert fighting["fighting"].mean() > 0.8
     assert set(roles["role"]) == {"fighter_a", "fighter_b", "referee"}
     # Every frame of the referee's colour ends up labelled referee, across the cut.
     t = tracks.merge(roles, on="track_id")

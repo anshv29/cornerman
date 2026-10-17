@@ -11,10 +11,13 @@ import pandas as pd
 TRANSNET_SIZE = (48, 27)
 
 
-def shots_from_probs(probs: np.ndarray, fps: float, threshold: float) -> pd.DataFrame:
+def shots_from_probs(
+    probs: np.ndarray, fps: float, threshold: float, stride: int = 1
+) -> pd.DataFrame:
     """One row per shot: shot_id, first and last frame (inclusive), start and end in seconds.
 
-    Frames inside a transition (probability above the threshold) belong to no shot.
+    `probs[i]` scores video frame i * stride (shot detection can run on every
+    k-th frame). Frames inside a transition belong to no shot.
     """
     is_cut = probs > threshold
     shots: list[tuple[int, int]] = []
@@ -27,8 +30,8 @@ def shots_from_probs(probs: np.ndarray, fps: float, threshold: float) -> pd.Data
             start = None
     if start is not None:
         shots.append((start, len(probs) - 1))
-    first = np.array([s for s, _ in shots], dtype=np.int64)
-    last = np.array([e for _, e in shots], dtype=np.int64)
+    first = np.array([s * stride for s, _ in shots], dtype=np.int64)
+    last = np.array([(e + 1) * stride - 1 for _, e in shots], dtype=np.int64)
     return pd.DataFrame(
         {
             "shot_id": np.arange(len(shots), dtype=np.int64),

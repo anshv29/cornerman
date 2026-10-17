@@ -1,7 +1,8 @@
 """The real perception stages: video in, tracks, identities and poses out.
 
-Same runner, caching and quarantine as the stub pipeline. Raw video is read
-through `ensure_video`, so a rerun after the video was deleted downloads it again.
+Same runner, caching and quarantine as the stub pipeline. Each video is
+decoded once into a frame cache next to the raw video (decode.py); a rerun
+after the raw folder was deleted fetches the video and rebuilds the cache.
 """
 
 import json
@@ -18,17 +19,19 @@ from cornerman.contracts.perception import (
     validate,
 )
 from cornerman.perception import models
+from cornerman.perception.activity import fighting_frames
 from cornerman.perception.appearance import N_FEATURES, box_features
+from cornerman.perception.arena import mat_colour, mat_hull, on_mat, shot_colour
+from cornerman.perception.decode import (
+    FrameCache,
+    cached_indices,
+    ensure_frames,
+    iter_cached,
+    small_frames,
+)
 from cornerman.perception.identity import ROLES, assign_roles, live_shots
 from cornerman.perception.shots import shot_of_frame, shots_from_probs
-from cornerman.perception.video import (
-    Frame,
-    ensure_video,
-    frame_step,
-    iter_frames,
-    prefetch,
-    probe,
-)
+from cornerman.perception.video import Frame, ensure_video, frame_step, probe
 from cornerman.pipeline.hashing import hash_file
 from cornerman.pipeline.stage import QuarantineError, Stage, StageContext
 
@@ -71,9 +74,9 @@ def ingest(ctx: StageContext) -> None:
 def shots(ctx: StageContext) -> None:
     p = ctx.settings.perception
     fps = float(_video_json(ctx)["fps"])
-    path = ensure_video(ctx.settings, ctx.fight_id)
-    probs = models.cut_probabilities(path, models.pick_device(p.device))
-    df = shots_from_probs(probs, fps, p.shot_threshold)
+    cache = ensure_frames(ctx.settings, ctx.fight_id, fps)
+    probs = models.cut_probabilities(small_frames(cache), models.pick_device(p.device))
+    df = shots_from_probs(probs, fps, p.shot_threshold, stride=cache.shot_step)
     if df.empty:
         raise QuarantineError("no shots found")
     df.to_parquet(ctx.out_dir / "shots.parquet", index=False)
@@ -86,23 +89,27 @@ def tracking(ctx: StageContext) -> None:
     fps, height = float(video["fps"]), float(video["height"])
     step = frame_step(fps, p.fps)
     shot_df = pd.read_parquet(ctx.inputs["shots"] / "shots.parquet")
-    path = ensure_video(ctx.settings, ctx.fight_id)
+    cache = ensure_frames(ctx.settings, ctx.fight_id, fps)
     tracker = models.ShotTracker(fps / step)
+    canvas = CanvasColours(cache, shot_df, p.mat_shot_shift) if p.mat_mask else None
 
     rows: list[dict[str, object]] = []
     feats: list[np.ndarray] = []
-    sampled: list[tuple[int, int]] = []
-    frames_in = prefetch(iter_frames(path, step=step), p.prefetch)
-    for batch in _batched(frames_in, p.det_batch):
+    sampled: list[tuple[int, int, int]] = []
+    for batch in _batched(iter_cached(cache, depth=p.prefetch), p.det_batch):
         idx = np.array([i for i, _ in batch])
         shot_ids = shot_of_frame(shot_df, idx)
         dets = models.detect_people([f for _, f in batch], p.detector, p.det_threshold, p.half)
         for (i, frame), shot_id, (boxes, conf) in zip(batch, shot_ids, dets, strict=True):
-            sampled.append((i, int(shot_id)))
             if shot_id < 0:
+                sampled.append((i, int(shot_id), 0))
                 continue
-            big = (boxes[:, 3] - boxes[:, 1]) >= p.min_person_height * height
-            boxes, conf = boxes[big], conf[big]
+            keep = (boxes[:, 3] - boxes[:, 1]) >= p.min_person_height * height
+            if canvas is not None:
+                hull = mat_hull(frame, canvas.of(int(shot_id)), p.mat_delta, p.mat_min_area)
+                keep &= on_mat(hull, boxes, p.mat_margin * height, height, p.mat_cut)
+            sampled.append((i, int(shot_id), int((~keep).sum())))
+            boxes, conf = boxes[keep], conf[keep]
             ids = tracker.update(int(shot_id), frame, boxes, conf)
             for box, c, tid in zip(boxes, conf, ids, strict=True):
                 if tid < 0:
@@ -129,9 +136,34 @@ def tracking(ctx: StageContext) -> None:
     validate(TRACKS_SCHEMA, tracks, "tracks").to_parquet(
         ctx.out_dir / "tracks.parquet", index=False
     )
-    frames = pd.DataFrame(sampled, columns=["frame", "shot_id"])
+    frames = pd.DataFrame(sampled, columns=["frame", "shot_id", "n_dropped"])
     frames.insert(1, "t", frames["frame"] / fps)
     frames.to_parquet(ctx.out_dir / "frames.parquet", index=False)
+
+
+class CanvasColours:
+    """The canvas colour for the whole fight and, lazily, as each shot's camera sees it."""
+
+    SAMPLES = 60
+    PER_SHOT = 12
+
+    def __init__(self, cache: FrameCache, shot_df: pd.DataFrame, max_shift: float) -> None:
+        self.cache = cache
+        self.max_shift = max_shift
+        idx = np.array(cached_indices(cache))
+        self.idx = idx
+        self.shot_ids = shot_of_frame(shot_df, idx)
+        pick = idx[:: max(1, len(idx) // self.SAMPLES)]
+        self.fight = mat_colour([f for _, f in iter_cached(cache, set(pick.tolist()))])
+        self.by_shot: dict[int, np.ndarray] = {}
+
+    def of(self, shot_id: int) -> np.ndarray:
+        if shot_id not in self.by_shot:
+            frames = self.idx[self.shot_ids == shot_id]
+            pick = set(frames[:: max(1, len(frames) // self.PER_SHOT)].tolist())
+            shot = [f for _, f in iter_cached(self.cache, pick)]
+            self.by_shot[shot_id] = shot_colour(shot, self.fight, self.max_shift)
+        return self.by_shot[shot_id]
 
 
 def identity(ctx: StageContext) -> None:
@@ -147,12 +179,29 @@ def identity(ctx: StageContext) -> None:
     )
     live = live_shots(tracks, shot_df, frames, p.live_min_frac)
     live.to_parquet(ctx.out_dir / "live.parquet", index=False)
+    fighting = fighting_frames(
+        frames,
+        fighter_boxes(tracks, roles, live),
+        set(live.loc[live["live"], "shot_id"].tolist()),
+        p.fight_window_s,
+        p.fight_min_speed,
+        p.fight_min_gap_s,
+        p.fight_min_run_s,
+    )
+    fighting.to_parquet(ctx.out_dir / "fighting.parquet", index=False)
 
 
-def fighter_boxes(tracks: pd.DataFrame, roles: pd.DataFrame, live: pd.DataFrame) -> pd.DataFrame:
-    """At most one box per fighter per frame, from live shots only."""
+def fighter_boxes(
+    tracks: pd.DataFrame,
+    roles: pd.DataFrame,
+    live: pd.DataFrame,
+    fighting: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """At most one box per fighter per frame, from live shots (and fighting frames, if given)."""
     t = tracks.merge(roles[["track_id", "role"]], on="track_id")
     t = t[t["role"].isin(ROLES[:2]) & t["shot_id"].isin(live.loc[live["live"], "shot_id"])]
+    if fighting is not None:
+        t = t[t["frame"].isin(fighting.loc[fighting["fighting"], "frame"])]
     t = t.sort_values(["frame", "role", "score"], ascending=[True, True, False])
     return t.drop_duplicates(["frame", "role"]).reset_index(drop=True)
 
@@ -161,18 +210,16 @@ def pose(ctx: StageContext) -> None:
     p = ctx.settings.perception
     video = _video_json(ctx)
     fps = float(video["fps"])
-    step = frame_step(fps, p.fps)
     tracks = pd.read_parquet(ctx.inputs["tracking"] / "tracks.parquet")
     roles = pd.read_parquet(ctx.inputs["identity"] / "identity.parquet")
     live = pd.read_parquet(ctx.inputs["identity"] / "live.parquet")
-    boxes = fighter_boxes(tracks, roles, live)
+    fighting = pd.read_parquet(ctx.inputs["identity"] / "fighting.parquet")
+    boxes = fighter_boxes(tracks, roles, live, fighting)
     by_frame = {int(g["frame"].to_numpy(dtype=np.int64)[0]): g for _, g in boxes.groupby("frame")}
-    path = ensure_video(ctx.settings, ctx.fight_id)
+    cache = ensure_frames(ctx.settings, ctx.fight_id, fps)
     device = models.pick_device(p.device)
 
-    wanted = prefetch(
-        (item for item in iter_frames(path, step=step) if item[0] in by_frame), p.prefetch
-    )
+    wanted = iter_cached(cache, wanted=set(by_frame), depth=p.prefetch)
     rows: list[pd.DataFrame] = []
     for batch in _batched(wanted, p.pose_batch):
         groups = [by_frame[i] for i, _ in batch]
@@ -195,17 +242,33 @@ def pose(ctx: StageContext) -> None:
                         }
                     )
                 )
-    poses = (
-        pd.concat(rows, ignore_index=True)
-        if rows
-        else pd.DataFrame(columns=list(POSES_SCHEMA.columns))
-    )
+    poses = pd.concat(rows, ignore_index=True) if rows else _empty_poses()
     validate(POSES_SCHEMA, poses, "poses").to_parquet(ctx.out_dir / "poses.parquet", index=False)
+
+
+def _empty_poses() -> pd.DataFrame:
+    """No fighting frames: an empty table that still has the contract's column types."""
+    return pd.DataFrame(
+        {
+            "frame": pd.Series(dtype="int64"),
+            "t": pd.Series(dtype="float64"),
+            "role": pd.Series(dtype="str"),
+            "kp": pd.Series(dtype="int64"),
+            "x": pd.Series(dtype="float64"),
+            "y": pd.Series(dtype="float64"),
+            "conf": pd.Series(dtype="float64"),
+        }
+    )
 
 
 REAL_PIPELINE: list[Stage] = [
     Stage("ingest", ingest, config_keys=("perception.max_height", "perception.min_height")),
-    Stage("shots", shots, deps=("ingest",), config_keys=("perception.shot_threshold",)),
+    Stage(
+        "shots",
+        shots,
+        deps=("ingest",),
+        config_keys=("perception.shot_threshold", "perception.shot_fps", "perception.fps"),
+    ),
     Stage(
         "tracking",
         tracking,
@@ -216,6 +279,12 @@ REAL_PIPELINE: list[Stage] = [
             "perception.det_threshold",
             "perception.min_person_height",
             "perception.half",
+            "perception.mat_mask",
+            "perception.mat_delta",
+            "perception.mat_min_area",
+            "perception.mat_margin",
+            "perception.mat_shot_shift",
+            "perception.mat_cut",
         ),
     ),
     Stage(
@@ -226,6 +295,10 @@ REAL_PIPELINE: list[Stage] = [
             "perception.min_track_frames",
             "perception.max_role_distance",
             "perception.live_min_frac",
+            "perception.fight_window_s",
+            "perception.fight_min_speed",
+            "perception.fight_min_gap_s",
+            "perception.fight_min_run_s",
         ),
     ),
     Stage(
