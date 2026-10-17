@@ -76,6 +76,11 @@ def main(argv: list[str] | None = None) -> int:
         help="dataset: download here and upload a private Kaggle dataset (YouTube blocks "
         "Kaggle after a few downloads); youtube: the job downloads itself",
     )
+    p_batch.add_argument(
+        "--reuse-dataset",
+        action="store_true",
+        help="attach the videos dataset already on Kaggle instead of uploading again",
+    )
     p_import = kg.add_parser("import", help="pull the GPU job's output into data/")
     p_import.add_argument("--data", type=Path, default=Path("data"))
     p_import.add_argument(
@@ -157,7 +162,14 @@ def _kaggle(args: argparse.Namespace) -> int:
         print(f"{len(chosen)} fights: {', '.join(chosen['fight_id'])}")
         values = batch.build_values(chosen, args.config, args.overlays)
         metadata: dict[str, object] = {}
-        if args.source == "dataset":
+        if args.source == "dataset" and args.reuse_dataset:
+            ref = videos.dataset_ref(_kaggle_user())
+            if not kaggle.dataset_exists(ref):
+                print(f"{ref} doesn't exist; run without --reuse-dataset")
+                return 1
+            kaggle.check_not_public(f"https://www.kaggle.com/api/v1/datasets/view/{ref}")
+            metadata["dataset_sources"] = [ref]
+        elif args.source == "dataset":
             settings = load_settings(args.config)
             ref = videos.stage_and_upload(
                 chosen, _kaggle_user(), Path("data/raw/upload"), settings.perception.max_height

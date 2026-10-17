@@ -112,7 +112,7 @@ def build_kernel(
     """Copy a kernel folder and fill in its build-time values.
 
     A line in the code file like `VIDEO_URLS: list[str] = []  # BUILD:VIDEO_URLS`
-    becomes `VIDEO_URLS = [...]` with the JSON of the value. This keeps things
+    becomes `VIDEO_URLS = [...]`, the value written as a Python literal. This keeps things
     such as video links out of git: they only exist in the private kernel.
     """
     meta = read_kernel_metadata(src)
@@ -134,7 +134,8 @@ def build_kernel(
             if name not in values:
                 raise KeyError(f"no build value for {name!r} in {code}")
             indent = line[: len(line) - len(line.lstrip())]
-            line = f"{indent}{name} = {json.dumps(values[name])}"
+            # repr, not JSON: JSON writes true/false/null, which aren't Python.
+            line = f"{indent}{name} = {values[name]!r}"
             missing.discard(name)
         lines.append(line)
     if missing:

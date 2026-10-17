@@ -80,7 +80,7 @@ def test_push_verifies_privacy_on_kaggle_after_upload(tmp_path: Path) -> None:
 def test_build_fills_values_and_keeps_privacy(tmp_path: Path) -> None:
     src = _kernel(tmp_path / "src", is_private=True)
     out = build_kernel(src, tmp_path / "out", {"URLS": ["a", "b"]})
-    assert (out / "job.py").read_text().splitlines()[0] == 'URLS = ["a", "b"]'
+    assert (out / "job.py").read_text().splitlines()[0] == "URLS = ['a', 'b']"
     assert "# BUILD:URLS" in (src / "job.py").read_text()
 
 
@@ -159,3 +159,13 @@ def test_dataset_upload_is_private_and_checked(tmp_path: Path) -> None:
     calls.clear()
     with pytest.raises(PrivacyError):
         upload_dataset(tmp_path, "me/videos", runner, probe=lambda url: 200)
+
+
+def test_built_values_are_valid_python(tmp_path: Path) -> None:
+    import ast
+
+    src = _kernel(tmp_path / "src", is_private=True)
+    value = {"half": True, "none": None, "n": 1.5, "nested": [{"x": False}], "s": "it's"}
+    out = build_kernel(src, tmp_path / "out", {"URLS": value})
+    line = (out / "job.py").read_text().splitlines()[0]
+    assert ast.literal_eval(line.split(" = ", 1)[1]) == value
