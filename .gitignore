@@ -8,6 +8,7 @@ __pycache__/
 .env
 kaggle.json
 credentials.json
+kaggle/build/
 mlruns/
 .DS_Store
 .pytest_cache/
