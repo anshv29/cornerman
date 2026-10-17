@@ -16,6 +16,20 @@ dependencies = [
     "yt-dlp>=2026.1",
 ]
 
+[project.optional-dependencies]
+# Perception models. Installed on Kaggle (which already has torch with CUDA)
+# and, with CPU torch, on the laptop and in CI so types and tests cover them.
+gpu = [
+    "rfdetr==1.11.2",
+    "trackers==2.6.1",
+    "transformers==5.20.1",
+    "transnetv2-pytorch==1.0.5",
+    "supervision==0.31.0",
+    "opencv-python-headless>=4.10",
+    "torch>=2.6",
+    "torchvision>=0.21",
+]
+
 [project.scripts]
 cornerman = "cornerman.pipeline.cli:main"
 
@@ -31,6 +45,17 @@ dev = [
     "pandas-stubs",
     "scipy-stubs",
 ]
+
+# On Linux (CI) take CPU-only torch so the install stays small. Kaggle doesn't
+# use this lock: it installs with pip on top of its own CUDA torch.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [build-system]
 requires = ["hatchling"]

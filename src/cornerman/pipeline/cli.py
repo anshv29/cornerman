@@ -15,10 +15,20 @@ from pathlib import Path
 from cornerman.collect.run import collect
 from cornerman.config import load_settings
 from cornerman.pipeline.runner import run
+from cornerman.pipeline.stage import Stage
 from cornerman.pipeline.stages import PIPELINE
 from cornerman.remote import kaggle
 
 KAGGLE_BUILD = Path("kaggle/build")
+
+
+def pipeline_for(name: str) -> list[Stage]:
+    """The stub stages, or the real perception stages (which need the gpu extra)."""
+    if name == "stub":
+        return PIPELINE
+    from cornerman.perception.stages import REAL_PIPELINE
+
+    return REAL_PIPELINE
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -57,13 +67,14 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO if args.verbose else logging.WARNING, format="%(message)s"
     )
     settings = load_settings(args.config)
+    stages = pipeline_for(settings.pipeline)
     fights: list[str] = args.fight or settings.fights
     stage: str | None = args.stage
-    known = {s.name for s in PIPELINE}
+    known = {s.name for s in stages}
     if stage is not None and stage not in known:
         parser.error(f"unknown stage {stage!r}; choose from {sorted(known)}")
 
-    results = run(PIPELINE, settings, fights, target=stage, force=args.force)
+    results = run(stages, settings, fights, target=stage, force=args.force)
     for r in results:
         print(f"{r.fight_id:<24} {r.stage:<12} {r.status}")
     counts = Counter(r.status.value for r in results)
