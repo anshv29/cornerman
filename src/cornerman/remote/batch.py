@@ -76,7 +76,8 @@ def import_outputs(src: Path, derived: Path, overlays: Path, logs: Path) -> list
             shutil.copy2(clip, overlays / clip.name)
     if (src / "job_log.json").exists():
         logs.mkdir(parents=True, exist_ok=True)
-        entries: list[dict[str, object]] = json.loads((src / "job_log.json").read_text())
+        # A list of fights (first pilot) or {"gpus", "total_wall_seconds", "fights"}.
+        entries: object = json.loads((src / "job_log.json").read_text())
         stamp = len(list(logs.glob("job_log_*.json")))
         (logs / f"job_log_{stamp:03d}.json").write_text(json.dumps(entries, indent=2))
     return finished

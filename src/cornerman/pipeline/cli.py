@@ -5,6 +5,7 @@
 `cornerman kaggle push|status|pull|batch|import` drives Kaggle jobs, always
 through the privacy checks in cornerman.remote.kaggle.
 `cornerman metrics` prints label-free perception health numbers per fight.
+`cornerman compare --a DIR --b DIR` checks two runs of one fight agree.
 """
 
 import argparse
@@ -63,20 +64,35 @@ def main(argv: list[str] | None = None) -> int:
     p_batch = kg.add_parser("batch", help="push the next unprocessed fights to the GPU job")
     p_batch.add_argument("--config", type=Path, default=Path("configs/kaggle_real.yaml"))
     p_batch.add_argument("--fights-csv", type=Path, default=Path("data/fights.csv"))
-    p_batch.add_argument("--n", type=int, required=True)
+    p_batch.add_argument("--n", type=int, default=0, help="next n unprocessed fights")
+    p_batch.add_argument(
+        "--fight", action="append", default=[], help="these fights, even if already done"
+    )
     p_batch.add_argument("--overlays", type=int, default=0)
     p_import = kg.add_parser("import", help="pull the GPU job's output into data/")
     p_import.add_argument("--data", type=Path, default=Path("data"))
+    p_import.add_argument(
+        "--derived", type=Path, help="put fights here instead of data/derived (for comparisons)"
+    )
 
     p_met = sub.add_parser("metrics", help="perception health numbers for processed fights")
     p_met.add_argument("--derived", type=Path, default=Path("data/derived"))
     p_met.add_argument("--fps", type=float, default=10.0)
+    p_cmp = sub.add_parser("compare", help="check two runs of the same fight agree")
+    p_cmp.add_argument("--a", type=Path, required=True, help="derived/{fight_id} of run A")
+    p_cmp.add_argument("--b", type=Path, required=True)
     args = parser.parse_args(argv)
 
     if args.command == "kaggle":
         return _kaggle(args)
     if args.command == "collect":
         return _collect(args.config)
+    if args.command == "compare":
+        from cornerman.eval.compare_runs import compare_fight
+
+        for k, v in compare_fight(args.a, args.b).items():
+            print(f"{k:<18} {v:.4g}")
+        return 0
     if args.command == "metrics":
         return _metrics(args.derived, args.fps)
 
@@ -118,7 +134,13 @@ def _push(folder: Path, values: dict[str, object]) -> None:
 def _kaggle(args: argparse.Namespace) -> int:
     if args.kaggle_command == "batch":
         fights = pd.read_csv(args.fights_csv)
-        chosen = batch.select_fights(fights, Path("data/derived"), args.n)
+        if args.fight:
+            chosen = fights[fights["fight_id"].isin(args.fight)]
+        else:
+            chosen = batch.select_fights(fights, Path("data/derived"), args.n)
+        if chosen.empty:
+            print("no fights to run")
+            return 1
         print(f"{len(chosen)} fights: {', '.join(chosen['fight_id'])}")
         _push(PERCEPTION_KERNEL, batch.build_values(chosen, args.config, args.overlays))
         return 0
@@ -126,7 +148,8 @@ def _kaggle(args: argparse.Namespace) -> int:
         data: Path = args.data
         ref = str(kaggle.read_kernel_metadata(PERCEPTION_KERNEL)["id"])
         src = kaggle.pull_output(ref, KAGGLE_BUILD / "perception_output")
-        done = batch.import_outputs(src, data / "derived", data / "overlays", data / "logs")
+        derived: Path = args.derived or data / "derived"
+        done = batch.import_outputs(src, derived, data / "overlays", data / "logs")
         print(f"imported {len(done)} finished fights")
         return 0
     folder: Path = args.folder

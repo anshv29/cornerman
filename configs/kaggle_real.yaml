@@ -7,15 +7,17 @@ perception:
   min_height: 480
   fps: 10
   device: auto
+  half: true
   shot_threshold: 0.5
   detector: rfdetr-large
   det_threshold: 0.4
-  det_batch: 8
+  det_batch: 16
+  prefetch: 64
   min_person_height: 0.2
   min_track_frames: 5
   max_role_distance: 0.6
   live_min_frac: 0.5
   pose_model: usyd-community/vitpose-plus-large
   pose_revision: e211df377e49
-  pose_batch: 16
+  pose_batch: 32
   overlay_seconds: 60
