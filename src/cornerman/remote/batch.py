@@ -75,9 +75,14 @@ def import_outputs(
         shutil.rmtree(dest, ignore_errors=True)
         shutil.copytree(fight, dest)
         finished.append(fight.name)
-        if crops is not None and (src / "crops" / fight.name).exists():
-            shutil.rmtree(crops / fight.name, ignore_errors=True)
-            shutil.copytree(src / "crops" / fight.name, crops / fight.name)
+        if crops is not None:
+            zipped = src / "crops" / f"{fight.name}.zip"
+            if zipped.exists():
+                shutil.rmtree(crops / fight.name, ignore_errors=True)
+                shutil.unpack_archive(zipped, crops / fight.name)
+            elif (src / "crops" / fight.name).exists():
+                shutil.rmtree(crops / fight.name, ignore_errors=True)
+                shutil.copytree(src / "crops" / fight.name, crops / fight.name)
     if (src / "overlays").exists():
         overlays.mkdir(parents=True, exist_ok=True)
         for clip in (src / "overlays").glob("*.mp4"):

@@ -233,25 +233,28 @@ A smoke test showed YouTube doesn't block downloads from Kaggle, so the job down
 
 ---
 
-## 12. Identity: fighter A, fighter B, referee
+## 12. Identity: red corner, blue corner, referee
 
-**Problem.** Tracks break at every cut and occlusion. A 15 minute fight becomes hundreds of short tracklets. We need to know which ones are the same person, and which person is the referee.
+**Problem.** Tracks break at every cut and occlusion, so a 15 minute fight becomes hundreds of short tracklets. We need to know which ones are the same person, which person is which corner, and which is the referee, and then which corner is which name in the fight list.
 
-**Why this approach.** In amateur MMA the two fighters wear different coloured shorts and gloves, and the referee wears a shirt and trousers. Colour is a strong cue, but on its own it fails when two outfits look similar under arena lighting. The extra fact that rescues it is simple: two tracklets visible in the same frame are two different people. Adding that as a hard rule to clustering (cannot-link k-means) stops the most damaging mistake, merging both fighters into one person.
+**What failed first, and why.** The first version described each box by a colour histogram over the whole box and clustered tracklets on that. On the pilot it mixed up both fighters and the referee. IMMAF kits are mostly black with red or blue trim, the referee wears black, and the light-blue canvas fills much of every box. Hue on black pixels is noise, so the histogram was mostly noise plus canvas. Three cheaper fixes (saturated pixels only, dropping canvas pixels, a different naming rule) didn't separate the fighters either. The lesson: the signal (red versus blue gloves and shin guards) was a few percent of each box, and averaging over the box drowned it.
+
+**Why this approach.** Look where the signal is. Pose already finds wrists, knees and ankles, so we read colour exactly at the gloves, shins and shorts. That makes identity depend on pose, so pose now runs on everyone on the canvas (about 2 people per frame after the cage mask) and identity runs afterwards, without a GPU. That also means identity can be redone on the laptop as often as needed, and person crops are saved about once a second for trying other methods later.
 
 **How it works.**
-1. *Features.* For each box, a hue-saturation histogram of the upper body and one of the shorts band, each square-rooted and the whole vector normalised. Brightness is left out because it changes with lighting more than clothing does. The square root stops one dominant colour (skin) from swamping the rest.
-2. *Summarise.* Each tracklet with at least 5 frames gets its average feature. We record which tracklets ever share a frame.
-3. *Seed.* Start the three groups from the three longest tracklets that were on screen together, so they're certainly three different people.
-4. *Assign.* Going from the longest tracklet down, put each one in its nearest group that doesn't already hold a tracklet it shares a frame with. If every allowed group is too far away in appearance, call it "other" (a cornerman, a cameraman). Recompute the group centres as length-weighted averages and repeat until nothing changes.
-5. *Name.* The two groups whose boxes stay closest to each other (median centre distance in box heights) are the fighters, and the third is the referee. Fighter A is whichever fighter is on the left the first time both are seen. A and B are consistent within a fight, but not yet linked to the names in `fights.csv`.
+1. *Samples.* For each person and frame, a small patch at each wrist, halfway between each knee and ankle, and just below the hips. Canvas-coloured pixels are dropped and the median Lab colour is kept.
+2. *Tracklet features.* The median a and b (Lab's red-green and blue-yellow axes, centred on zero) of gloves, shins and shorts. Red kit has a strongly positive; blue kit has b strongly negative; black kit and the referee sit near zero; bare skin is mildly positive on both.
+3. *Cannot-link clustering.* Two tracklets seen in the same frame are different people, so they may not share a group. Up to four groups (red, blue, referee, anyone else on the canvas).
+4. *Merge.* With only three people present, k-means with four groups splits one person in two. Groups whose colours are close and which never share a frame are merged, because that is one person seen at different times.
+5. *Name.* The reddest gloves and shins are the red corner, the bluest the blue corner; of the rest, the group with the most screen time is the referee.
+6. *Names.* IMMAF titles list the red corner first, which we checked against the broadcast score bar (red and blue edges beside the names). So the title's first fighter is red.
 
-**What breaks it.** Both fighters in the same colours and a referee in similar tones. The referee standing in a clinch, closer to one fighter than the fighters are to each other. A long shot where only one fighter is visible gives no cannot-link constraint. Linking A/B to names (by corner colour from the event) is still to do.
+**What breaks it.** Seen on the pilot: it worked on a fight with full red and full blue kits, and failed on two 2023 Worlds fights where both kits were black with small trim and the gloves were dark red or black; the patches landed in the right places but read little colour. Also: events without red and blue corner colours (some promotions use black and white, or no colour code). Gloves out of view or blurred for a whole tracklet. Clinch boxes that contain both fighters, so a "tracklet" mixes red and blue. A referee in red or blue. The score-bar convention is checked for IMMAF only.
 
 **Interview questions.**
-1. *Why not a learned re-identification network?* Re-ID models are trained on pedestrians in street clothes; two shirtless fighters in similar shorts look nearly the same to them. Our problem has only three people and strong structure (co-occurrence, proximity), and the simple model uses that structure directly. A re-ID embedding could be added as extra feature dimensions later if colour proves too weak.
-2. *Why is the cannot-link rule so important?* Without it, if both fighters' shorts look similar under the lights, k-means happily merges them and splits the referee into two groups. The rule makes that assignment impossible, because the merged group would contain two tracklets from the same frame.
-3. *How do you know who the referee is without labels?* By behaviour, not looks: fighters spend the fight close to each other, the referee keeps distance. That holds in every bout, whatever anyone wears.
+1. *Why sample at keypoints instead of training a re-identification network?* The discriminating signal is known and tiny (glove and shin colour). Sampling exactly there uses that knowledge directly, needs no training data, and is easy to check by eye. A re-ID network trained on pedestrians would see two similar black kits.
+2. *Why up to four groups and then merge, instead of exactly three?* Cornermen and officials do step onto the canvas, and forcing them into three groups would put them in a fighter's group. But when only three people are present, a fourth group steals half of someone. Merging groups that never co-occur and look alike handles both cases.
+3. *How do you link a corner to a name without face recognition?* The federation's own convention: red corner listed first in the title, verified on the broadcast graphic that shows both names with corner colours. No biometrics needed.
 
 ---
 
@@ -261,7 +264,7 @@ A smoke test showed YouTube doesn't block downloads from Kaggle, so the job down
 
 **Why this approach.** ViTPose++ Large is a top-down pose model: give it a person box and it returns 17 COCO keypoints with confidences. It is the strongest permissive-licence option on COCO keypoints (Sapiens is stronger but non-commercial). Top-down suits us because we already have tracked boxes, and only two people per frame need poses. It runs through Hugging Face `transformers`, pinned to a model revision hash, so the weights can't change under us.
 
-**How it works.** For each sampled frame in a live shot, take at most one box per fighter, crop and resize it to the model's input, predict a heatmap per keypoint, and read off the peak location and height as position and confidence. ViTPose++ is trained on several datasets with a separate output head per dataset; we pass the COCO head's index.
+**How it works.** For each sampled frame in a live shot, take every tracked person on the canvas (fighters, referee, the odd cornerman; identity is decided afterwards from these poses), crop and resize it to the model's input, predict a heatmap per keypoint, and read off the peak location and height as position and confidence. ViTPose++ is trained on several datasets with a separate output head per dataset; we pass the COCO head's index.
 
 **What breaks it.** Grappling. When bodies tangle, a box contains limbs from both fighters and the model can put one fighter's knee on the other's leg. Keypoint confidence drops, which the health metrics track per fight. The spec plans to lean on hip height, silhouette and torso orientation in clinch and ground states rather than individual keypoints, and to try 3D body mesh where 2D breaks.
 

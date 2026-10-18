@@ -116,3 +116,34 @@ Label-free check: three 3-minute rounds should give a bit over 9 minutes. On the
 With the cage mask applied offline to the pilot fight, we looked at identity labels on six frames spread over the fight. They are wrong, and not only in the mask's version: the pilot's own labels (colour clustering, fighters = the two groups that stay closest) mix up the two fighters and the referee too. IMMAF kits are mostly black with red or blue trim, and the referee wears black. The colour features are hue-saturation histograms over all pixels, and hue on black pixels is noise; the canvas, a saturated light blue, also fills much of each box.
 Tried offline, on one fight, judged on frames: (1) hue from saturated pixels only, plus dark and grey shares, with a shin band; (2) also dropping canvas-coloured pixels and the box edges; (3) naming the referee as the group with the least screen time instead of by proximity. None separated the two fighters: almost every tracklet came out "more blue than red", including the red-corner fighter's. All three were reverted, since none is proven better than the pilot version.
 This matters for the run: pose only runs on boxes labelled as fighters, so wrong identity means poses for the wrong people and a rerun later. The fix we'd propose is in PROGRESS.md and waits for Ansh's call.
+
+## 2026-10-18: Identity from keypoint colour, after pose (Ansh approved the proposal)
+- **Pose on everyone on the canvas** in live shots, not just boxes labelled as fighters, so pose no longer depends on identity being right. With the cage mask that is about 2 people per frame; we estimated roughly a quarter more pose work than the pilot.
+- **Colour at the parts where corner colour lives** (`perception/kitcolour.py`): small patches (4% of box height) at each wrist (gloves), halfway between knee and ankle (shin guards) and just below the hips (shorts), with canvas-coloured pixels left out, stored as median Lab per part.
+- **Identity after pose, without a GPU** (`perception/identity.py`): per tracklet the median a and b of each part; cannot-link k-means into up to four groups (red, blue, referee, anyone else on the canvas); groups closer than 20 chroma units that never share a frame are merged back, because with only three people k-means otherwise splits one of them in two (it did, in the synthetic test). The reddest gloves and shins are the red corner, the bluest the blue corner, and of the rest the group with the most screen time is the referee.
+- **Corners to names:** IMMAF titles list the red corner first. Checked on the two pilot fights against the broadcast score bar, which marks the blue name with a blue edge on the left and the red name with a red edge on the right; in both, the right-hand (red) name is the title's first name. `corner_fighters` encodes this; other sources need their own check.
+- **Person crops**, about one per tracked person per second, 160 px high, saved to `data/crops/{fight_id}/` (on Kaggle, the kernel's private output), so identity can be redone with a different method later without the GPU or the video. They show fighters, so they stay local: `data/` is gitignored by allow-list and only `data/derived` goes into DVC.
+- Stage order is now ingest, shots, tracking, pose, identity. Live shots moved into tracking; the fighting filter moved into identity, since it needs to know who the fighters are.
+
+## 2026-10-18: Why the Kaggle OAuth login lapses, and the fix
+The CLI (kaggle 2.2.4) stores a refresh token and gets a new 12-hour access token automatically, but its expiry check is `expiration < now - 30 minutes`, so it renews only half an hour after the old token has expired. During that half hour every call fails with "Authentication required", which is what stopped the batch on 2026-10-17. An API token in `~/.kaggle/access_token` takes precedence over OAuth in the CLI's lookup order (access token, then legacy `kaggle.json`, then OAuth), so it avoids the problem. Generating it is Ansh's step (PROGRESS.md, Needs Ansh). `access_token` is gitignored and gitleaks scans every commit.
+
+## 2026-10-18: Results of the 3-fight run with the new code (decode once, cage mask, keypoint identity)
+The 3 pilot fights YouTube had blocked (446, 735 and 1037 s of video) ran on Kaggle's T4 x2 in 2395 s of wall time, all three finished.
+**Decode once, measured.** The fights differ from the earlier ones and pose now does more work (everyone on the canvas instead of labelled fighters), so the fair comparison is time per second of video:
+
+| | Previous run (FP16, decoded 3 times) | This run (decoded once) |
+|---|---|---|
+| Wall time per second of video | 1.65 (both fights) | 1.58, 1.22, 1.38 (1.37 overall) |
+| shots stage (now includes the one decode) | 0.25 to 0.36 | 0.17 to 0.32 |
+| tracking | 0.66 to 0.72 | 0.45 to 0.64 |
+| pose | 0.62 to 0.68 (fighters only) | 0.51 to 0.61 (everyone on the canvas) |
+
+So per second of video the whole pipeline is about 17% faster, despite pose covering more people. For a typical 14-minute fight that's roughly 230 s saved, about half the 400 to 500 s we estimated; the rest of the expected saving went into the extra pose work. We can't split the two exactly without rerunning the same fights both ways, which isn't worth the quota.
+**Identity, checked on crops (no labels yet).**
+- One fight (full red kit against full blue kit): red, blue and referee groups are each mostly the right person; checked on a montage of 12 crops per group.
+- Two fights (2023 Worlds: black kits with small red or blue trim, dark-red gloves): identity is wrong. The keypoint patches land in the right places (checked by drawing them on crops) but read little colour. In one fight the gloves are dark red (saturation around 108, brightness around 76 on OpenCV's 0 to 255 scale), below our "kit colour" floor; in the other both fighters' gloves and shin guards look black.
+- An offline test on the crops with a pose-masked body region (torso and thighs) and counts of red and blue pixels separates the colourful fight cleanly but not the two black-kit fights, even with wider colour windows.
+- Two other problems show up in the crops. Merged clinch boxes become long tracklets that contain both fighters. In one fight, cageside cameras shoot through the fence, so officials outside it overlap the canvas in the image and are kept by the cage mask.
+Nothing here needs GPU to try next: the crops and poses are on the laptop. Ideas, in order: exclude merged boxes (wide boxes, or two people's keypoints in one box) from identity; a lower saturation floor for dark red with a hue window that avoids skin; and for fights where the corners are only distinguishable by small trim, a learned appearance embedding trained on the confident tracklets of the same fight.
+**Import was slow:** Kaggle's output download fetches files one at a time, and 3,717 crops took over ten minutes. The job now zips each fight's crops into one file.

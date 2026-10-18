@@ -1,6 +1,7 @@
 """Choosing Kaggle batches and importing their outputs."""
 
 import json
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -32,8 +33,10 @@ def test_import_copies_only_finished_fights(tmp_path: Path) -> None:
     src = tmp_path / "out"
     _finish(src / "derived", "ft_done")
     (src / "derived" / "ft_half" / "tracking").mkdir(parents=True)
-    (src / "crops" / "ft_done").mkdir(parents=True)
-    (src / "crops" / "ft_done" / "000001_0000010.jpg").write_bytes(b"x")
+    (tmp_path / "c" / "ft_done").mkdir(parents=True)
+    (tmp_path / "c" / "ft_done" / "000001_0000010.jpg").write_bytes(b"x")
+    (src / "crops").mkdir(parents=True)
+    shutil.make_archive(str(src / "crops" / "ft_done"), "zip", tmp_path / "c" / "ft_done")
     (src / "overlays").mkdir()
     (src / "overlays" / "ft_done.mp4").write_bytes(b"x")
     (src / "job_log.json").write_text(json.dumps([{"fight_id": "ft_done"}]))

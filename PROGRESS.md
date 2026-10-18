@@ -45,35 +45,28 @@ $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs
 - Real pipeline (`pipeline: real`): ingest, shots, tracking, identity, pose, plus overlays and label-free health metrics. CPU end-to-end test on a synthetic video with stand-in models.
 - Kaggle job: one worker per GPU on the T4 x2 machine, per-stage timings, resumable by batch (import takes only finished fights).
 - YouTube blocked Kaggle after 2 downloads, so batches now download on the laptop, upload one private dataset, delete local copies, and `import` deletes the dataset.
-- Pilot: 2 fights processed (the other 3 of the first batch were blocked by YouTube). Health numbers per fight: both fighters boxed in 67% and 69% of live frames, 3.8 and 2.4 role switches per minute, median keypoint confidence 0.87 and 0.85.
+- Pilot: all 5 fights processed (2 on the first run; the 3 YouTube blocked on 2026-10-18 with the new code). Health numbers per fight: both fighters boxed in 67% and 69% of live frames, 3.8 and 2.4 role switches per minute, median keypoint confidence 0.87 and 0.85.
 - Speed pass (FP16, prefetching, bigger batches, two GPUs): 0.42 to 1.15 footage minutes per session minute; per fight 1.38x to 1.53x faster. Outputs match the FP32 run (99.4% boxes matched, median IoU 0.997, keypoints 0.24 px apart at the median). Details in DECISIONS.md.
-- Second speed pass (laptop-tested, not yet run on Kaggle): each video decoded once into a frame cache next to the raw video; shot detection at about 25 fps. Tracking and pose were already at 10 fps.
-- Cage mask (people must stand on the canvas; per-shot canvas colour) and a motion-based fighting filter (walk-outs, breaks and announcements out; 9.3 and 9.5 minutes of fighting on the pilot fights). Pose runs only on fighting frames.
-- Docs: LEARNING.md sections 8 to 18.
+- Second speed pass: each video decoded once into a frame cache next to the raw video; shot detection at about 25 fps (tracking and pose were already at 10 fps). Measured on Kaggle: 1.65 to 1.37 seconds of wall time per second of video, about 17% faster even with pose covering everyone on the canvas.
+- Cage mask (people must stand on the canvas; per-shot canvas colour) and a motion-based fighting filter (walk-outs, breaks and announcements out; 9.3 and 9.5 minutes of fighting on the pilot fights).
+- Identity redesign (Ansh approved): pose on everyone on the canvas, colour samples at gloves, shins and shorts, identity after pose without a GPU, red and blue corners linked to registry IDs (IMMAF titles list red first, checked on the score bar). Person crops about once a second in `data/crops/` (local only) so identity can be redone without the GPU.
+- Docs: LEARNING.md sections 8 to 18 (section 12 rewritten for the new identity).
 
 ## Shaky or worth a second look
 - **Top perception issue for Phase 3: clinch box-merging.** In clinches, against the fence and on the ground, the detector often draws one box around both fighters, so both fighters are boxed in only 67 to 69% of live frames on the pilot. Everything downstream (identity, pose, state) inherits it. First thing to try: the RF-DETR segmentation variant (Apache 2.0, same family as our detector), whose per-person masks separate tangled bodies better than boxes. Measure it against the Phase 2 gold set, split by state (standing, clinch, ground).
-- **Identity is wrong on the pilot fight, and it decides whether the 50-fight run is useful** (see DECISIONS.md, "Identity is the blocker"). Colour clustering can't separate IMMAF's mostly black kits (red or blue trim) from each other or from the referee's black uniform. Three cheap feature and naming changes didn't fix it and were reverted. Needs Ansh's call, below.
-- **Cage mask misses**: a person outside the cage but close to the camera (a cornerman in a cageside shot) overlaps the canvas in the image and is kept. A white or grey canvas (other promotions) falls back to plain colour distance, untested.
+- **Identity works on 1 of 3 fights checked.** Full red against full blue kits: right. 2023 Worlds black kits with small trim and dark-red or black gloves: wrong (DECISIONS.md, "Results of the 3-fight run"). Merged clinch boxes form tracklets containing both fighters. Next ideas, all offline on the crops: drop merged boxes from identity, a dark-red colour window that avoids skin, and a per-fight learned appearance embedding trained on confident tracklets.
+- **Cage mask misses**: a person outside the cage but close to the camera (a cornerman in a cageside shot) overlaps the canvas in the image and is kept; in one fight, cageside cameras shooting through the fence let several officials through. A white or grey canvas (other promotions) falls back to plain colour distance, untested.
 - **Fighting filter** is tuned on 2 fights (threshold 0.2 box heights per second gives 9.3 and 9.5 minutes). It should be checked on the 50 against each fight's round count, once results are scraped.
-- **Throughput:** 1.15 footage minutes per Kaggle session minute before the decode-once change, which should save roughly 400 to 500 s per fight but is not yet measured on Kaggle. Ansh's call: enough for the 74 IMMAF fights; no more speed work for now.
+- **Throughput:** about 1.37 s of wall time per second of video per GPU; two GPUs run in parallel. Ansh's call: enough for the 74 IMMAF fights; no more speed work for now.
 - **YouTube may block the laptop too** if batches get large. One transient download failure happened; downloads now retry once.
 - The stage code hash doesn't see changes in helper functions. Each stage has a manual `version` string to bump. Hashing the whole module would be stricter.
 - Plug-in empirical Bayes ignores uncertainty in alpha and pi. Fine with hundreds of fighters, too narrow with few. Full Bayes comes in Tier 1.
 - The first `pre-commit` run on a new machine downloads Go to build gitleaks, which takes a minute or two.
 
-## Decision for Ansh: identity before the 50-fight run
-Pose runs only on boxes labelled as fighters, so running 50 fights with the current identity would compute poses for the wrong people, and they'd need redoing. Proposed fix, cheap and testable on the laptop:
-1. Run pose on every person on the canvas (fighters, referee, the odd cornerman), not just labelled fighters. With the cage mask that's about 2.5 people per frame instead of 2, so pose takes roughly a quarter longer.
-2. Store a small colour sample at the keypoints where corner colours live: wrists (gloves), ankles and shins (guards), hips (shorts).
-3. Assign identity afterwards, on the laptop, from those samples: the referee has no gloves, and red and blue gloves and guards separate the corners. This also links fighter A/B to the red/blue corner, so to the names.
-Identity can then be redone offline as often as needed, without GPU time. The alternative is to run the 50 now with the current identity and accept a pose rerun later.
-
 ## Next
-1. Kaggle login (Needs Ansh 1), then run the 3 blocked pilot fights. They'll use the new code (decode once, cage mask, fighting filter), which also measures the decode-once saving on Kaggle.
-2. Identity, per Ansh's decision above.
-3. Then 50 fights (hard rule 10), then Phase 2: the automated gold set.
-4. MLflow comes later, before the first real model fit (Phase 4).
+1. Identity, offline on the laptop (no GPU): try the ideas above on the 5 pilot fights' crops and poses; check each on a montage of crops per role. If it works on the black-kit fights, rerun the identity stage locally (it needs no video).
+2. Then 50 fights (hard rule 10), ideally after Ansh sets up the API token (Needs Ansh 1), then Phase 2: the automated gold set.
+3. MLflow comes later, before the first real model fit (Phase 4).
 
 ## Later (noted 2026-10-17)
 - **More amateur sources before Tier 2.** Only 18 of 125 fighters have 2+ fights in the IMMAF data. Per-fighter models need depth, so Tier 2 (scaling to 1000+ fights) must add more public amateur sources with repeat fighters. Same rules apply: adult bouts only, no pro promotion broadcasts.

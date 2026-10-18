@@ -112,6 +112,12 @@ def worker(gpu: int, fight_ids: list[str], overlay_ids: list[str], cfg: str, sta
             entry["error"] = traceback.format_exc()[-3000:]
         finally:
             shutil.rmtree(raw_dir(settings, fid), ignore_errors=True)
+            # One zip per fight: Kaggle's output download fetches files one by one,
+            # and thousands of small crops made an import take over ten minutes.
+            crops = settings.paths.crops / fid
+            if crops.exists():
+                shutil.make_archive(str(crops), "zip", crops)
+                shutil.rmtree(crops, ignore_errors=True)
         entry["wall_seconds"] = round(time.time() - t0, 1)
         log.append(entry)
         log_path.write_text(json.dumps(log, indent=2))
