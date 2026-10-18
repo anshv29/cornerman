@@ -43,13 +43,13 @@ POSES_SCHEMA = pa.DataFrameSchema(
     {
         "frame": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
         "t": pa.Column(float, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
-        "role": pa.Column(str, pa.Check.isin(ROLES[:2])),  # pyright: ignore[reportUnknownMemberType]
+        "track_id": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
         "kp": pa.Column(int, pa.Check.in_range(0, 16)),  # pyright: ignore[reportUnknownMemberType]
         "x": pa.Column(float),
         "y": pa.Column(float),
         "conf": pa.Column(float, pa.Check.in_range(0, 1)),  # pyright: ignore[reportUnknownMemberType]
     },
-    unique=["frame", "role", "kp"],
+    unique=["frame", "track_id", "kp"],
     strict=True,
 )
 

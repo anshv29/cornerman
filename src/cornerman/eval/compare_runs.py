@@ -62,6 +62,12 @@ def _load(d: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     poses = pd.read_parquet(d / "pose" / "poses.parquet")
     shots = pd.read_parquet(d / "shots" / "shots.parquet")
     tracks = tracks.merge(roles[["track_id", "role"]], on="track_id", how="left")
+    if "track_id" in poses.columns:
+        # Track IDs differ between runs; compare the fighters' poses by role instead.
+        poses = poses.merge(roles[["track_id", "role"]], on="track_id")
+        poses = poses[poses["role"].isin(["red", "blue"])]
+        first = poses.drop_duplicates(["frame", "role"])[["frame", "role", "track_id"]]
+        poses = poses.merge(first, on=["frame", "role", "track_id"])
     return tracks.assign(role=tracks["role"].fillna("other")), poses, shots
 
 

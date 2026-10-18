@@ -16,8 +16,8 @@ from cornerman.perception.video import frame_step, iter_frames
 
 # BGR colours per role.
 COLOURS: dict[str, tuple[int, int, int]] = {
-    "fighter_a": (40, 40, 220),
-    "fighter_b": (220, 120, 30),
+    "red": (40, 40, 220),
+    "blue": (220, 120, 30),
     "referee": (200, 200, 200),
     OTHER: (90, 90, 90),
 }
@@ -45,8 +45,10 @@ def render(
     step = frame_step(fps, target_fps)
     tracks = pd.read_parquet(derived / "tracking" / "tracks.parquet")
     roles = pd.read_parquet(derived / "identity" / "identity.parquet")
-    live = pd.read_parquet(derived / "identity" / "live.parquet")
+    live = pd.read_parquet(derived / "tracking" / "live.parquet")
     poses = pd.read_parquet(derived / "pose" / "poses.parquet")
+    poses = poses.merge(roles[["track_id", "role"]], on="track_id", how="left")
+    poses["role"] = poses["role"].fillna(OTHER)
     tracks = tracks.merge(roles[["track_id", "role"]], on="track_id", how="left")
     tracks["role"] = tracks["role"].fillna(OTHER)
     live_ids = set(live.loc[live["live"], "shot_id"])
@@ -87,8 +89,8 @@ def draw(frame: np.ndarray, boxes: pd.DataFrame | None, poses: pd.DataFrame | No
             cv2.putText(frame, label, (p1[0], max(12, p1[1] - 6)), cv2.FONT_HERSHEY_SIMPLEX,
                         0.5, colour, 1)  # fmt: skip
     if poses is not None:
-        for role, g in poses.groupby("role"):
-            colour = COLOURS[str(role)]
+        for _, g in poses.groupby("track_id"):
+            colour = COLOURS[str(g["role"].iloc[0])]
             pts = g.sort_values("kp")[["x", "y", "conf"]].to_numpy()
             for a, b in SKELETON:
                 if pts[a, 2] >= MIN_KP_CONF and pts[b, 2] >= MIN_KP_CONF:

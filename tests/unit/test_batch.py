@@ -9,8 +9,8 @@ from cornerman.remote.batch import done_fights, import_outputs, select_fights
 
 
 def _finish(derived: Path, fight: str) -> None:
-    (derived / fight / "pose").mkdir(parents=True)
-    (derived / fight / "pose" / "manifest.json").write_text("{}")
+    (derived / fight / "identity").mkdir(parents=True)
+    (derived / fight / "identity" / "manifest.json").write_text("{}")
 
 
 def test_select_skips_done_and_prefers_repeat_fighters(tmp_path: Path) -> None:
@@ -32,14 +32,17 @@ def test_import_copies_only_finished_fights(tmp_path: Path) -> None:
     src = tmp_path / "out"
     _finish(src / "derived", "ft_done")
     (src / "derived" / "ft_half" / "tracking").mkdir(parents=True)
+    (src / "crops" / "ft_done").mkdir(parents=True)
+    (src / "crops" / "ft_done" / "000001_0000010.jpg").write_bytes(b"x")
     (src / "overlays").mkdir()
     (src / "overlays" / "ft_done.mp4").write_bytes(b"x")
     (src / "job_log.json").write_text(json.dumps([{"fight_id": "ft_done"}]))
     data = tmp_path / "data"
 
-    done = import_outputs(src, data / "derived", data / "overlays", data / "logs")
+    done = import_outputs(src, data / "derived", data / "overlays", data / "logs", data / "crops")
     assert done == ["ft_done"]
-    assert (data / "derived" / "ft_done" / "pose" / "manifest.json").exists()
+    assert (data / "derived" / "ft_done" / "identity" / "manifest.json").exists()
     assert not (data / "derived" / "ft_half").exists()
     assert (data / "overlays" / "ft_done.mp4").exists()
     assert (data / "logs" / "job_log_000.json").exists()
+    assert (data / "crops" / "ft_done" / "000001_0000010.jpg").exists()

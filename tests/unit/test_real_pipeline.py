@@ -96,6 +96,7 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
             derived=tmp_path / "derived",
             quarantine=tmp_path / "quarantine",
             raw=tmp_path / "raw",
+            crops=tmp_path / "crops",
             manifest=tmp_path / "manifest.json",
         ),
         perception=PerceptionConfig(
@@ -124,15 +125,21 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
     assert (frames.loc[frames["shot_id"] >= 0, "n_dropped"] >= 1).all()
     fighting = pd.read_parquet(d / "identity" / "fighting.parquet")
     assert fighting["fighting"].mean() > 0.8
-    assert set(roles["role"]) == {"fighter_a", "fighter_b", "referee"}
-    # Every frame of the referee's colour ends up labelled referee, across the cut.
+    assert set(roles["role"]) == {"red", "blue", "referee"}
+    # Corners come from colour: the red-shorts person (left) is red, blue-shorts is blue,
+    # grey (right) is the referee, on both sides of the cut.
     t = tracks.merge(roles, on="track_id")
-    ref_x = t.loc[t["role"] == "referee", "x1"]
-    assert (ref_x > 200).all()
+    mean_x = t.groupby("role")["x1"].mean()
+    assert mean_x["red"] < mean_x["blue"] < mean_x["referee"]
 
     poses = pd.read_parquet(d / "pose" / "poses.parquet")
-    assert set(poses["role"]) == {"fighter_a", "fighter_b"}
-    assert poses.groupby(["frame", "role"]).size().eq(17).all()
+    assert set(poses["track_id"]) == set(tracks["track_id"])  # everyone on the canvas
+    assert poses.groupby(["frame", "track_id"]).size().eq(17).all()
+    samples = pd.read_parquet(d / "pose" / "samples.parquet")
+    assert set(samples["part"]) == {"glove", "shin", "shorts"}
+    crops = list((tmp_path / "crops" / "ft_test").glob("*.jpg"))
+    assert crops, "expected person crops"
+    assert len(crops) <= tracks["track_id"].nunique() * 6 + 3  # about one per second
 
     # Second run is fully cached.
     again = run(REAL_PIPELINE, settings, ["ft_test"])

@@ -183,7 +183,7 @@ def _kaggle(args: argparse.Namespace) -> int:
         ref = str(kaggle.read_kernel_metadata(PERCEPTION_KERNEL)["id"])
         src = kaggle.pull_output(ref, KAGGLE_BUILD / "perception_output")
         derived: Path = args.derived or data / "derived"
-        done = batch.import_outputs(src, derived, data / "overlays", data / "logs")
+        done = batch.import_outputs(src, derived, data / "overlays", data / "logs", data / "crops")
         print(f"imported {len(done)} finished fights")
         ref = videos.dataset_ref(_kaggle_user())
         if kaggle.dataset_exists(ref):
@@ -209,15 +209,16 @@ def _metrics(derived: Path, fps: float) -> int:
     rows: list[dict[str, object]] = []
     for fid in sorted(batch.done_fights(derived)):
         d = derived / fid
-        if not (d / "tracking" / "frames.parquet").exists():
-            continue  # stub pipeline output, e.g. the fixture fight
+        if not (d / "identity" / "fighting.parquet").exists():
+            continue  # stub output (the fixture fight) or the older pilot layout
         m = fight_metrics(
             frames=pd.read_parquet(d / "tracking" / "frames.parquet"),
             tracks=pd.read_parquet(d / "tracking" / "tracks.parquet"),
             roles=pd.read_parquet(d / "identity" / "identity.parquet"),
-            live=pd.read_parquet(d / "identity" / "live.parquet"),
+            live=pd.read_parquet(d / "tracking" / "live.parquet"),
             poses=pd.read_parquet(d / "pose" / "poses.parquet"),
             step_seconds=1 / fps,
+            fighting=pd.read_parquet(d / "identity" / "fighting.parquet"),
         )
         rows.append({"fight_id": fid, **m})
     if not rows:

@@ -94,3 +94,26 @@ def test_not_live_shots_never_count() -> None:
     frames, boxes = _activity([0.4] * 30)
     out = fighting_frames(frames, boxes, set(), 10, 0.2, 8, 15)
     assert not out["fighting"].any()
+
+
+def test_kit_colour_reads_gloves_shins_and_shorts() -> None:
+    from cornerman.perception.kitcolour import sample_person
+
+    frame = np.full((200, 100, 3), 30, dtype=np.uint8)  # dark kit everywhere
+    frame[:, :] = (30, 30, 30)
+    frame[90:110, 10:30] = (0, 0, 220)  # red glove around the wrist
+    frame[150:170, 40:60] = (220, 60, 0)  # blue shin guard
+    kps = np.zeros((17, 2))
+    kps[9] = (20, 100)  # left wrist
+    kps[10] = (90, 190)  # right wrist, over dark
+    kps[13], kps[15] = (50, 140), (50, 180)  # knee and ankle: shin at (50, 160)
+    kps[11], kps[12] = (40, 100), (60, 100)
+    scores = np.full(17, 0.9)
+    scores[16] = 0.1  # right ankle uncertain: no right shin sample
+    got = sample_person(frame, kps, scores, box_h=200, canvas_lab=None, min_conf=0.3)
+    parts = [p for p, *_ in got]
+    assert parts.count("glove") == 2 and parts.count("shin") == 1 and "shorts" in parts
+    glove_red = next(g for g in got if g[0] == "glove" and g[2] > 160)  # high a = red
+    assert glove_red[4] >= 5
+    shin = next(g for g in got if g[0] == "shin")
+    assert shin[3] < 100  # low b = blue

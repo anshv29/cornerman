@@ -14,7 +14,7 @@ import pandas as pd
 import yaml
 
 REPO = "https://github.com/anshv29/cornerman"
-FINAL_STAGE = "pose"
+FINAL_STAGE = "identity"
 
 
 def done_fights(derived: Path) -> set[str]:
@@ -60,8 +60,13 @@ def build_values(batch: pd.DataFrame, config: Path, overlays: int) -> dict[str, 
     }
 
 
-def import_outputs(src: Path, derived: Path, overlays: Path, logs: Path) -> list[str]:
-    """Copy a pulled job output into data/. Returns the fights that finished."""
+def import_outputs(
+    src: Path, derived: Path, overlays: Path, logs: Path, crops: Path | None = None
+) -> list[str]:
+    """Copy a pulled job output into data/. Returns the fights that finished.
+
+    Person crops go to `crops` (local only, never committed or put in DVC).
+    """
     finished: list[str] = []
     for fight in sorted((src / "derived").glob("*")):
         if not (fight / FINAL_STAGE / "manifest.json").exists():
@@ -70,6 +75,9 @@ def import_outputs(src: Path, derived: Path, overlays: Path, logs: Path) -> list
         shutil.rmtree(dest, ignore_errors=True)
         shutil.copytree(fight, dest)
         finished.append(fight.name)
+        if crops is not None and (src / "crops" / fight.name).exists():
+            shutil.rmtree(crops / fight.name, ignore_errors=True)
+            shutil.copytree(src / "crops" / fight.name, crops / fight.name)
     if (src / "overlays").exists():
         overlays.mkdir(parents=True, exist_ok=True)
         for clip in (src / "overlays").glob("*.mp4"):

@@ -59,6 +59,7 @@ def write_config() -> Path:
     config["paths"] = {
         "derived": str(WORK / "derived"),
         "quarantine": str(WORK / "quarantine"),
+        "crops": str(WORK / "crops"),
         "raw": str(TMP / "raw"),
         "manifest": str(manifest),
         # Videos staged in the private dataset, when the batch used one.

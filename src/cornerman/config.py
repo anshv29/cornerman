@@ -21,6 +21,8 @@ class PathsConfig(BaseModel):
     """Raw video, one folder per fight. Deleted once the fight is processed."""
     manifest: Path = Path("data/manifest.json")
     """fight_id -> video URL for the fights in this run. Never committed."""
+    crops: Path = Path("data/crops")
+    """Small person crops, one folder per fight. Local only: never committed, never in DVC."""
     video_source: Path | None = None
     """A folder holding pre-downloaded videos named {fight_id}.mp4 (searched recursively),
     e.g. the private Kaggle dataset. Used before trying to download."""
@@ -70,9 +72,15 @@ class PerceptionConfig(BaseModel):
     """How far a shot's own canvas colour may be from the fight's before it's distrusted."""
     mat_cut: float = Field(default=0.15, ge=0, lt=1)
     """Boxes reaching into this bottom share of the frame have their feet hidden."""
+    crop_every_s: float = Field(default=1.0, gt=0)
+    """Save a crop of each tracked person about this often (for redoing identity later)."""
+    crop_height: int = Field(default=160, ge=16)
+    kp_min_conf: float = Field(default=0.3, ge=0, le=1)
+    """Keypoints below this confidence aren't used for colour samples."""
     min_track_frames: int = Field(default=5, ge=1)
-    max_role_distance: float = Field(default=0.6, gt=0)
-    """Tracklets further than this (appearance distance) from every role are 'other'."""
+    max_role_distance: float = Field(default=2.0, gt=0)
+    """Tracklets further than this from every allowed group are 'other'. Units of the
+    identity features: 1.0 is 40 Lab chroma units, about a full red glove vs black."""
     live_min_frac: float = Field(default=0.5, gt=0, le=1)
     """A shot is live if at least this share of its frames shows 2+ large people."""
     fight_window_s: float = Field(default=10.0, gt=0)
