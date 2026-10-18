@@ -147,3 +147,28 @@ So per second of video the whole pipeline is about 17% faster, despite pose cove
 - Two other problems show up in the crops. Merged clinch boxes become long tracklets that contain both fighters. In one fight, cageside cameras shoot through the fence, so officials outside it overlap the canvas in the image and are kept by the cage mask.
 Nothing here needs GPU to try next: the crops and poses are on the laptop. Ideas, in order: exclude merged boxes (wide boxes, or two people's keypoints in one box) from identity; a lower saturation floor for dark red with a hue window that avoids skin; and for fights where the corners are only distinguishable by small trim, a learned appearance embedding trained on the confident tracklets of the same fight.
 **Import was slow:** Kaggle's output download fetches files one at a time, and 3,717 crops took over ten minutes. The job now zips each fight's crops into one file.
+
+## 2026-10-18: Offline identity experiments: target not met (2 of 5 fights), stopping to check with Ansh
+Goal (Ansh, time-boxed to one session): red and blue right on at least 4 of the 5 pilot fights, judged on crop montages. Everything ran on the laptop from the crops and poses; the only GPU use was a short free Kaggle run to give the two oldest pilot fights crops and everyone-on-canvas poses.
+**Judging rule.** For each fight, a montage of 12 random crops per role. "Right" means at least 9 of 12 crops in both the red and the blue row show that corner's fighter as the main person, and red and blue aren't swapped.
+**What was tried.**
+1. *Drop merged boxes* (width-to-height ratio above 1.6 times the fight's median): about 20% of crops per fight. Kept in every later variant; it removes clinch boxes that contain both fighters.
+2. *Dark-red colour window* (hue 155 to 180 or 0 to 5, saturation from 70): helps a little, not enough on its own. Black kits with dark trim stay ambiguous at tracklet level.
+3. *Per-fight learned appearance embedding (the main bet)* (`experiments/identity_embedding.py`): DINOv2-small (Apache 2.0, revision `ed25f3a31f01`), patch features averaged over the pose body mask so background and canvas don't dominate; a linear projection to 64 dimensions trained per fight with a triplet loss, where crops of one tracklet are the same person and crops of tracklets on screen together are different people; cannot-link clustering into 8 groups; look-alike groups that never co-occur merged. A first version on whole-crop features clustered by camera and background (the triplet loss hit 0.001 trivially); masking to the body fixed that.
+**Result.** The embedding separates people well: in 4 of 5 fights each large group is one person (one fight splits the blue fighter over two groups). What fails is the next step, deciding which groups are the two fighters. Referees and cageside officials stand close to fighters in the image, and a fighter's tracklets are spread over several groups.
+
+| Fight | Groups are single people | Fighters = most close frames | Fighters = smallest median distance | If the right pair were chosen |
+|---|---|---|---|---|
+| ft_c816f513c5 (full red and blue kits) | yes | right | wrong | right |
+| ft_b8991792ed (black kits, dark-red gloves) | yes | right | wrong | right |
+| ft_9eec213a59 | yes | wrong (cageside official) | wrong | right |
+| ft_a8bf4f59c3 (similar black kits) | mostly | wrong | right | right |
+| ft_97394d8b1a | partly (blue fighter split) | wrong | wrong | partly |
+
+Best automatic result: 2 of 5. With the fighter pair chosen correctly, red against blue by pooled colour was right in 4 of 5.
+**Rules tried for picking the fighters, and why they failed:** most frames close together (favours whoever has most screen time, so the referee next to one fighter wins); smallest median distance (a coin flip between near-equal pairs: 0.71 against 0.72 in one fight); share of poses with both hands up (too noisy: officials gesture, fighters drop their guard). Bare skin above the knee was tried and dropped: the skin colour range under-detected darker skin, which makes it unfair as well as unreliable.
+**What we'd try next, in order:**
+1. A fighter-versus-everyone-else classifier across fights: a linear probe on the same body-masked DINOv2 features, trained on groups from fights where the pair is unambiguous, and checked on the others. Fight gear (gloves, shin guards, bare feet, shorts) is what separates fighters from officials, and it's the same across fights.
+2. Use merged clinch boxes as evidence: they contain both fighters, so the groups whose crops look most like the merged crops are the fighters.
+3. Only then revisit the tracker's ID switches that split one fighter across groups.
+Nothing here needs new GPU time. The keypoint-colour identity in the pipeline stays as it is until one of these works.
