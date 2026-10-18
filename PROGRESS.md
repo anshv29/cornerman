@@ -2,7 +2,12 @@
 
 ## Needs Ansh
 
-1. **Kaggle login expired (blocks GPU runs).** The OAuth session from `kaggle auth login` ran out on 2026-10-17. Run `uvx --from kaggle==2.2.4 kaggle auth login` on the laptop (in Claude Code: `! uvx --from kaggle==2.2.4 kaggle auth login`) and finish the browser step. Then the 3 blocked pilot fights can run: `uv run cornerman kaggle batch --fight ft_a8bf4f59c3 --fight ft_b8991792ed --fight ft_c816f513c5 --overlays 1`.
+1. **A Kaggle login that doesn't lapse (needed before long unattended batches).** The OAuth login (`kaggle auth login`) gets a new 12-hour access token automatically, but the CLI (kaggle 2.2.4) only renews it 30 minutes *after* it has expired: its check is `expiration < now - 30 min`. So every 12 hours there is a half-hour window where every call fails with "Authentication required", which is what broke the batch on 2026-10-17. An API token file avoids this, and the CLI uses it before OAuth. Steps:
+   1. Go to https://www.kaggle.com/settings, section "API", and click "Generate New Token". If it asks for an expiry, pick the longest (or none). Copy the token.
+   2. On the laptop: `printf '%s' 'PASTE_TOKEN_HERE' > ~/.kaggle/access_token && chmod 600 ~/.kaggle/access_token`
+   3. Check: `uvx --from kaggle==2.2.4 kaggle config view` should show `auth_method: ACCESS_TOKEN`, and `uvx --from kaggle==2.2.4 kaggle datasets list --mine` should work.
+   4. Don't put the token in the repo (`access_token` is gitignored and gitleaks scans every commit). Don't add a payment method on Kaggle.
+   Until then, OAuth works except in that half hour every 12 hours; the current token expires at 03:57 UTC on 2026-10-18.
 2. **A free DVC remote (not blocking).** Ansh said on 2026-10-17 this can wait. Recommended: DagsHub (free, no card). Sign up at https://dagshub.com with GitHub, connect the `anshv29/cornerman` repo, then share the DVC remote URL and an access token with the agent, for example by putting the token in a gitignored `.env` file. Until then the DVC cache lives only on this laptop.
 
 ## Kaggle setup (done 2026-10-17)
@@ -75,6 +80,5 @@ Identity can then be redone offline as often as needed, without GPU time. The al
 - **Fight results before Tier 3.** Result, method, round/time and weight class are empty because IMMAF's YouTube descriptions don't include them. Scrape them from IMMAF's website (check its terms first) before Tier 3, where the simulator and Elo baseline need outcomes.
 
 ## Blocked
-- GPU runs: Kaggle login expired (Needs Ansh 1).
-- The 50-fight run: waits on the identity decision above.
+- Long unattended GPU batches: OAuth lapses for 30 minutes every 12 hours (Needs Ansh 1). Short runs work.
 - Pushing derived data off the laptop waits on a DVC remote, which Ansh has said can wait.

@@ -8,6 +8,8 @@ __pycache__/
 .env
 kaggle.json
 credentials.json
+access_token
+access_token.txt
 kaggle/build/
 mlruns/
 .DS_Store
