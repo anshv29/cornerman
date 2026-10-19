@@ -364,3 +364,23 @@ A smoke test showed YouTube doesn't block downloads from Kaggle, so the job down
 1. *Why speed in box heights per second?* Pixels per second depend on how far the camera is zoomed in; dividing by the person's box height makes the number roughly the same for a wide shot and a close-up.
 2. *Why a median and not a mean?* One fast moment (a single punch) or one tracking glitch shouldn't flip a whole window. The median needs most of the window to be moving.
 3. *How would you validate it properly?* Against the round clock: once results are scraped (they include the round and time of a finish), and with OCR of the broadcast clock on a sample of fights, compare predicted fighting time with the true round time.
+
+---
+
+## 19. Identity experiments: labels from behaviour, and an honest held-out test
+
+**Problem.** Colour rules for "who is red, who is blue" broke on kits that are mostly black. Two experiments (`experiments/`) tried learned appearance instead. This section is about how they were built and judged, because the judging matters as much as the method.
+
+**How it works.**
+1. *Group people per fight.* DINOv2-small (a general pretrained image model) gives patch features; averaging them only over the body, located by pose, keeps the canvas and crowd out. A small projection is then trained per fight with a triplet loss, where crops from one tracklet are the same person and crops from tracklets on screen together are different people. The fight's own structure is the supervision. Clustering with the cannot-link rule turns tracklets into person groups.
+2. *Find the fighters.* The hard part. A logistic regression across fights scores "fighter or not" from the same features. Its labels come from behaviour, not from anyone labelling crops: on the ground or kicking means fighter (officials don't do either), never moving means not a fighter. The labels are noisy (about 75 to 80% right for fighters), which a linear model tolerates.
+3. *Red or blue.* Between the two fighter groups only, compare the pooled share of red and blue pixels on the body.
+
+**How it was judged.** Development used the 5 pilot fights. Then the method was frozen, trained on 20 fights, and run once on 30 fights nobody had looked at. Each fight was judged on a montage of 12 random crops per corner (at least 9 of 12 right, red and blue not swapped). A second variant (merged-clinch evidence) was fixed in advance and reported alongside, instead of being kept only if it helped. Result: 20 of 30 for the classifier alone, 9 of 30 with merged evidence.
+
+**What breaks it.** Ground scrambles put both fighters in one group. Crops from outside fighting time (walk-outs, flag shots, officials) leak into fighter groups. A referee in a red shirt looks like the red corner. Merged clinch boxes contain the referee as often as the fighters, which is why that evidence backfired.
+
+**Interview questions.**
+1. *Why train on labels from behaviour instead of labelling a few hundred crops?* The project rule is no hand labelling, and behaviour labels scale to any number of fights for free. The cost is noise, so the model is kept simple (linear) and checked on fights it never trained on.
+2. *Why report the variant that did worse?* Choosing between variants after seeing test results turns the test set into a development set and inflates the number. Both variants were fixed before the test, so both get reported.
+3. *Red and blue were never swapped, but 10 fights failed. What does that tell you?* The colour decision is reliable once the right two groups are chosen. The weak step is grouping and picking the fighters, so that is where the next work goes: only crops from fighting time, and ground positions assigned from the standing frames around them.

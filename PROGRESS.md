@@ -44,11 +44,13 @@ $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs
 - Second speed pass: each video decoded once into a frame cache next to the raw video; shot detection at about 25 fps (tracking and pose were already at 10 fps). Measured on Kaggle: 1.65 to 1.37 seconds of wall time per second of video, about 17% faster even with pose covering everyone on the canvas.
 - Cage mask (people must stand on the canvas; per-shot canvas colour) and a motion-based fighting filter (walk-outs, breaks and announcements out; 9.3 and 9.5 minutes of fighting on the pilot fights).
 - Identity redesign (Ansh approved): pose on everyone on the canvas, colour samples at gloves, shins and shorts, identity after pose without a GPU, red and blue corners linked to registry IDs (IMMAF titles list red first, checked on the score bar). Person crops about once a second in `data/crops/` (local only) so identity can be redone without the GPU.
-- Docs: LEARNING.md sections 8 to 18 (section 12 rewritten for the new identity).
+- 50 fights processed (2026-10-18), 45 of them in 3 batches of 15 on free quota.
+- Identity experiments in `experiments/` (offline, laptop only): best is 20 of 30 held-out fights right.
+- Docs: LEARNING.md sections 8 to 19.
 
 ## Shaky or worth a second look
 - **Top perception issue for Phase 3: clinch box-merging.** In clinches, against the fence and on the ground, the detector often draws one box around both fighters, so both fighters are boxed in only 67 to 69% of live frames on the pilot. Everything downstream (identity, pose, state) inherits it. First thing to try: the RF-DETR segmentation variant (Apache 2.0, same family as our detector), whose per-person masks separate tangled bodies better than boxes. Measure it against the Phase 2 gold set, split by state (standing, clinch, ground).
-- **Identity is not solved.** Pipeline version (keypoint colour): right on 1 of 3 fights checked. Offline per-fight embedding (`experiments/identity_embedding.py`): people are separated in 4 of 5 fights, but picking the fighter pair automatically works on 2 of 5. See "Next".
+- **Identity is not solved.** Best method so far (`experiments/identity_fighters.py`): 20 of 30 held-out fights right. The pipeline's identity stage still uses the earlier keypoint-colour version, so `fighting.parquet` and the health numbers for the 50 fights rest on it.
 - **Cage mask misses**: a person outside the cage but close to the camera (a cornerman in a cageside shot) overlaps the canvas in the image and is kept; in one fight, cageside cameras shooting through the fence let several officials through. A white or grey canvas (other promotions) falls back to plain colour distance, untested.
 - **Fighting filter** is tuned on 2 fights (threshold 0.2 box heights per second gives 9.3 and 9.5 minutes). It should be checked on the 50 against each fight's round count, once results are scraped.
 - **Throughput:** about 1.37 s of wall time per second of video per GPU; two GPUs run in parallel. Ansh's call: enough for the 74 IMMAF fights; no more speed work for now.
@@ -58,10 +60,9 @@ $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs
 - The first `pre-commit` run on a new machine downloads Go to build gitleaks, which takes a minute or two.
 
 ## Next (waiting for Ansh)
-Offline identity work (2026-10-18) did not reach the target of red and blue right on 4 of 5 pilot fights: best automatic result 2 of 5. The per-fight appearance embedding separates people well (4 of 5 fights); choosing which groups are the two fighters is what fails. Details and next ideas in DECISIONS.md, "Offline identity experiments". Stopping here as agreed, before the 50-fight run. Options for Ansh:
-1. Keep going on identity: a fighter-versus-official classifier on body-masked DINOv2 features across fights (laptop only, no GPU), then recheck all 5.
-2. Run the 50 fights now. Tracking, pose, colour samples and crops don't depend on identity, so identity can be redone offline later without GPU time; only the fighting-time filter and the health numbers depend on it.
-3. MLflow comes later, before the first real model fit (Phase 4).
+- The 50-fight run is done (2026-10-18): 50 fights with tracks, poses, colour samples and crops, no failures, about 7.3 hours of free quota.
+- Identity: the fighter-versus-official classifier gets red and blue right on 20 of 30 held-out fights (67%), short of the 4-of-5 bar; merged-clinch evidence made it worse (9 of 30). No fight had red and blue swapped; the failures are mixing (ground scrambles, officials and post-fight shots, a referee in red). Details and next ideas in DECISIONS.md. Stopping to check with Ansh before further identity work or Phase 2.
+- MLflow comes later, before the first real model fit (Phase 4).
 
 ## Later (noted 2026-10-17)
 - **More amateur sources before Tier 2.** Only 18 of 125 fighters have 2+ fights in the IMMAF data. Per-fighter models need depth, so Tier 2 (scaling to 1000+ fights) must add more public amateur sources with repeat fighters. Same rules apply: adult bouts only, no pro promotion broadcasts.

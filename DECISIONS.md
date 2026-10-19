@@ -172,3 +172,28 @@ Best automatic result: 2 of 5. With the fighter pair chosen correctly, red again
 2. Use merged clinch boxes as evidence: they contain both fighters, so the groups whose crops look most like the merged crops are the fighters.
 3. Only then revisit the tracker's ID switches that split one fighter across groups.
 Nothing here needs new GPU time. The keypoint-colour identity in the pipeline stays as it is until one of these works.
+
+## 2026-10-18: The 50-fight run
+45 more fights ran in 3 batches of 15 (picked by `cornerman kaggle batch --n 15`, which favours fighters with the most fights), one after another, each well inside Kaggle's 12-hour session limit: 9,504 s, 9,061 s and 7,884 s of wall time for 11,210 s, 11,118 s and 10,708 s of video, on the T4 x2 machine (about 1.2 to 1.4 seconds of video per second of session). No fight failed or was quarantined. Each batch staged its videos on the laptop (about 2.8 GB, 4 minutes to download), uploaded one private dataset, and the dataset was deleted after import. About 7.3 hours of free GPU quota; roughly 11 hours used this week in total, so the weekly quota was never in danger. 50 fights are now in `data/derived/` with tracks, poses, colour samples and crops.
+
+## 2026-10-18: Fighter-versus-official classifier for identity: 20 of 30 held-out fights right (target not met)
+**Method** (`experiments/identity_fighters.py`, laptop only):
+- *Labels without people:* a crop is "fighter" if its torso is close to horizontal (on the canvas) or one ankle is above the other knee (a kick); "not fighter" if its tracklet barely moves for at least 30 frames (standing officials, photographers). Checked on samples: about 75 to 80% of the fighter labels and about 95% of the not-fighter labels are right. A knee-skin cue was rejected earlier because it under-detected darker skin.
+- *Classifier:* logistic regression on DINOv2-small features averaged over the pose body mask.
+- *Per fight:* the per-fight embedding (triplet loss, now with a body hue histogram added) groups crops by person; fighter-like groups (mean probability at least 0.5) that are almost never on screen together are folded into one person; the two fighter-like people that do appear together and have the most screen time are the fighters; tracklets the classifier calls non-fighters (below 0.35) are taken out of the fighter groups; red and blue by pooled red and blue pixel share.
+**Evaluation.** Development on the 5 pilot fights (with the classifier trained on batch 1); after that, nothing was changed. Test: train on 20 fights (pilot plus batch 1), assign the 30 fights of batches 2 and 3, which were not looked at before, and judge each on a montage of 12 random crops per corner. Right = at least 9 of 12 in both rows show that corner's fighter, and red and blue not swapped. Judged by the agent, not blind.
+**Result:**
+
+| Variant | Right |
+|---|---|
+| Classifier only | 20 of 30 (67%) |
+| Classifier plus merged-clinch evidence (weight 0.5, fixed before the test) | 9 of 30 (30%) |
+
+The merged-box evidence made things worse: the referee is in many clinch boxes (breaking fighters up) and dresses like the dark part of the merged crops, so he was picked as a fighter in 18 of the 19 fights it changed. It is not used.
+In none of the 30 fights were red and blue swapped: the colour decision between the two chosen fighters held even for red-against-gold and blue-against-black-and-gold kits. All failures are mixing:
+- ground scrambles where both fighters end up in one row (4 fights);
+- officials, coaches and post-fight flag shots in a fighter row (4);
+- a referee in a red shirt (1);
+- red against gold, borderline at 8 of 12 (1).
+**What we'd try next:** use only crops from fighting time (the motion filter), which drops walk-outs, flag shots and officials between rounds; leave ground positions and merged-looking boxes out of identity and assign them afterwards from the standing frames around them; and a "who is the referee" step (the person who separates fighters, separately trainable from the same behavioural labels) instead of relying on clothing.
+Until then, identity is the experiment's output, kept locally; the pipeline's identity stage is unchanged.
