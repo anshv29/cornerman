@@ -172,9 +172,25 @@ def kernel_status(ref: str, runner: Runner = _run_cli) -> str:
     return kaggle(["kernels", "status", ref], runner).strip()
 
 
-def pull_output(ref: str, dest: Path, runner: Runner = _run_cli) -> Path:
+def pull_output(ref: str, dest: Path, runner: Runner = _run_cli, tries: int = 6) -> Path:
+    """Download a kernel's output, retrying when the connection drops.
+
+    Large outputs (a batch's crop zips) often break mid-download. The CLI skips
+    files that are already up to date, so a retry carries on where it stopped,
+    except that a broken download leaves an empty file the CLI would also skip.
+    Empty files are removed before each retry.
+    """
     dest.mkdir(parents=True, exist_ok=True)
-    kaggle(["kernels", "output", ref, "-p", str(dest)], runner)
+    for attempt in range(tries):
+        try:
+            kaggle(["kernels", "output", ref, "-p", str(dest)], runner)
+            return dest
+        except KaggleError:
+            if attempt == tries - 1:
+                raise
+            for f in dest.rglob("*"):
+                if f.is_file() and f.stat().st_size == 0:
+                    f.unlink()
     return dest
 
 

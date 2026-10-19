@@ -13,6 +13,7 @@ from cornerman.remote.kaggle import (
     check_args,
     check_kernel_metadata,
     kaggle,
+    pull_output,
     push_kernel,
 )
 
@@ -169,3 +170,26 @@ def test_built_values_are_valid_python(tmp_path: Path) -> None:
     out = build_kernel(src, tmp_path / "out", {"URLS": value})
     line = (out / "job.py").read_text().splitlines()[0]
     assert ast.literal_eval(line.split(" = ", 1)[1]) == value
+
+
+def test_pull_output_retries_and_drops_broken_files(tmp_path: Path) -> None:
+    """A dropped connection leaves an empty file; the retry must not treat it as done."""
+    calls: list[int] = []
+
+    def flaky(args: Sequence[str]) -> str:
+        calls.append(1)
+        if len(calls) < 3:
+            (tmp_path / "a.zip").write_bytes(b"")
+            raise KaggleError("Connection broken")
+        assert not (tmp_path / "a.zip").exists()
+        (tmp_path / "a.zip").write_bytes(b"ok")
+        return ""
+
+    pull_output("someone/k", tmp_path, runner=flaky)
+    assert len(calls) == 3 and (tmp_path / "a.zip").read_bytes() == b"ok"
+
+    def broken(args: Sequence[str]) -> str:
+        raise KaggleError("Connection broken")
+
+    with pytest.raises(KaggleError):
+        pull_output("someone/k", tmp_path, runner=broken, tries=2)
