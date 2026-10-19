@@ -2,7 +2,9 @@
 
 ## Needs Ansh
 
-1. **A free DVC remote (not blocking).** Ansh said on 2026-10-17 this can wait. Recommended: DagsHub (free, no card). Sign up at https://dagshub.com with GitHub, connect the `anshv29/cornerman` repo, then share the DVC remote URL and an access token with the agent, for example by putting the token in a gitignored `.env` file. Until then the DVC cache lives only on this laptop.
+1. **Identity flag threshold (decides which fights later models use).** The held-out test (24 fights) gave 18 right. At the frozen threshold 0.4, unflagged fights are 15 of 19 right and the flag caught only 2 of the 6 wrong ones. Over all 54 judged fights, 0.5 would keep 36 fights with 32 right (89%) and catch 11 of 15 wrong, but 0.5 was picked after the test, so that number is optimistic. Options: keep 0.4 (more fights, about 1 in 5 wrong), or move to 0.5 (two thirds of fights, about 1 in 10 wrong). To change it: set `identity_flag_below` in the config and run `uv run cornerman identity-quality` (no rerun of anything else). Details in DECISIONS.md, 2026-10-19.
+2. **ViCoS jiu-jitsu dataset licence (CC BY-NC-SA 4.0, non-commercial).** We'd use it only to evaluate the ground-state classifier, never redistribute it. Say yes or no; until then it isn't downloaded. DECISIONS.md, Phase 2 plan.
+3. **A free DVC remote (not blocking).** Ansh said on 2026-10-17 this can wait. Recommended: DagsHub (free, no card). Sign up at https://dagshub.com with GitHub, connect the `anshv29/cornerman` repo, then share the DVC remote URL and an access token with the agent, for example by putting the token in a gitignored `.env` file. Until then the DVC cache lives only on this laptop.
 
 ## Kaggle setup (done 2026-10-17)
 - Account `anshvaishnav29`, phone verified, so notebooks get GPU and internet.
@@ -12,6 +14,7 @@
 
 ## Current spend
 $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs.md`.
+Free Kaggle GPU used so far: about 15 hours in total, about 3.5 of them for the last 24 fights (2026-10-19).
 
 ## Done
 
@@ -48,9 +51,19 @@ $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs
 - Identity experiments in `experiments/` (offline, laptop only): best is 20 of 30 held-out fights right.
 - Docs: LEARNING.md sections 8 to 19.
 
+### Identity round 3 and the start of Phase 2 (2026-10-19)
+- All 74 IMMAF fights processed (the last 24 on free Kaggle quota, about 3.5 h).
+- Identity round 3, developed on the 30 already-seen fights: roles per crop (Viterbi along each tracklet), two-pass fighting time, and a per-fight confidence score from four label-free checks. Dropped after trying: fighting-time-only grouping with ground fill-in (worse), and a behavioural referee detector (its labels were 35 to 50% precise). Dev: 21 of 30.
+- Held-out test on the 24 new fights, method fixed and committed first: 18 of 24 right (75%), no red/blue swaps. Flag at 0.4: unflagged 15 of 19 right, 2 of 6 wrong fights caught. Confidence AUC 0.83. Verdicts in `experiments/identity_v3_test_verdicts.csv`.
+- The method is in the pipeline: a `crop_features` stage (DINOv2-small over the body mask) and the `identity` stage writing `roles.parquet` (role per box), `quality.json` (confidence, flag) and `fighting.parquet`. Matches the frozen experiment exactly on all 33,492 test crops. `cornerman identity-quality` lists flags (17 of 74 at 0.4); `usable_fights` gives the rest.
+- Phase 2 started: plan and licence checks (DECISIONS.md), label-free checks (`eval/label_free.py`), and the silver-set clip sampler (`cornerman gold-clips`: 400 clips of 3 s from the 57 usable fights, 100 per position stratum: apart, close, ground, merged).
+- Fixes: Kaggle downloads retry when the connection drops; import no longer re-copies an older batch or wipes stages run on the laptop.
+- Docs: LEARNING.md section 20.
+
 ## Shaky or worth a second look
 - **Top perception issue for Phase 3: clinch box-merging.** In clinches, against the fence and on the ground, the detector often draws one box around both fighters, so both fighters are boxed in only 67 to 69% of live frames on the pilot. Everything downstream (identity, pose, state) inherits it. First thing to try: the RF-DETR segmentation variant (Apache 2.0, same family as our detector), whose per-person masks separate tangled bodies better than boxes. Measure it against the Phase 2 gold set, split by state (standing, clinch, ground).
-- **Identity is not solved.** Best method so far (`experiments/identity_fighters.py`): 20 of 30 held-out fights right. The pipeline's identity stage still uses the earlier keypoint-colour version, so `fighting.parquet` and the health numbers for the 50 fights rest on it.
+- **Identity is good enough to start, not solved.** 75% of held-out fights right; the failures are ground mixing and the other fighter leaking into a corner through clinches. The confidence score ranks fights well but its threshold is soft (Needs Ansh, item 1). Clinch box-merging (above) is the shared root cause.
+- **Clip strata are a rough proxy.** "ground" leans on torso angle and wide boxes and "merged" also catches close-ups of one fighter. They only spread the sample; the VLM labels will show how well they line up.
 - **Cage mask misses**: a person outside the cage but close to the camera (a cornerman in a cageside shot) overlaps the canvas in the image and is kept; in one fight, cageside cameras shooting through the fence let several officials through. A white or grey canvas (other promotions) falls back to plain colour distance, untested.
 - **Fighting filter** is tuned on 2 fights (threshold 0.2 box heights per second gives 9.3 and 9.5 minutes). It should be checked on the 50 against each fight's round count, once results are scraped.
 - **Throughput:** about 1.37 s of wall time per second of video per GPU; two GPUs run in parallel. Ansh's call: enough for the 74 IMMAF fights; no more speed work for now.
@@ -59,10 +72,11 @@ $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs
 - Plug-in empirical Bayes ignores uncertainty in alpha and pi. Fine with hundreds of fighters, too narrow with few. Full Bayes comes in Tier 1.
 - The first `pre-commit` run on a new machine downloads Go to build gitleaks, which takes a minute or two.
 
-## Next (waiting for Ansh)
-- The 50-fight run is done (2026-10-18): 50 fights with tracks, poses, colour samples and crops, no failures, about 7.3 hours of free quota.
-- Identity: the fighter-versus-official classifier gets red and blue right on 20 of 30 held-out fights (67%), short of the 4-of-5 bar; merged-clinch evidence made it worse (9 of 30). No fight had red and blue swapped; the failures are mixing (ground scrambles, officials and post-fight shots, a referee in red). Details and next ideas in DECISIONS.md. Stopping to check with Ansh before further identity work or Phase 2.
-- MLflow comes later, before the first real model fit (Phase 4).
+## Next
+1. Ansh's call on the flag threshold, then rerun `cornerman gold-clips` if it changes.
+2. VLM check on Kaggle (free): pin Qwen3-VL 4B or 8B (InternVL3 as the fallback), cut the 400 clips (the videos need downloading and uploading as a private dataset again, then deleting), measure memory, clips per minute and agreement between two prompts on a few dozen clips before labelling all of them.
+3. The rules labeller (labeller A) over pose and box features, so the silver set can require three-way agreement.
+4. MLflow comes later, before the first real model fit (Phase 4).
 
 ## Later (noted 2026-10-17)
 - **More amateur sources before Tier 2.** Only 18 of 125 fighters have 2+ fights in the IMMAF data. Per-fighter models need depth, so Tier 2 (scaling to 1000+ fights) must add more public amateur sources with repeat fighters. Same rules apply: adult bouts only, no pro promotion broadcasts.
@@ -70,3 +84,4 @@ $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs
 
 ## Blocked
 - Pushing derived data off the laptop waits on a DVC remote, which Ansh has said can wait.
+- Using the ViCoS jiu-jitsu set waits on Ansh's licence call.
