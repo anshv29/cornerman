@@ -11,6 +11,7 @@ through the privacy checks in cornerman.remote.kaggle.
 import argparse
 import json
 import logging
+import shutil
 from collections import Counter
 from pathlib import Path
 
@@ -200,7 +201,9 @@ def _kaggle(args: argparse.Namespace) -> int:
     if args.kaggle_command == "import":
         data: Path = args.data
         ref = str(kaggle.read_kernel_metadata(PERCEPTION_KERNEL)["id"])
-        src = kaggle.pull_output(ref, KAGGLE_BUILD / "perception_output")
+        out = KAGGLE_BUILD / "perception_output"
+        shutil.rmtree(out, ignore_errors=True)  # else an older batch's fights come along
+        src = kaggle.pull_output(ref, out)
         derived: Path = args.derived or data / "derived"
         done = batch.import_outputs(src, derived, data / "overlays", data / "logs", data / "crops")
         print(f"imported {len(done)} finished fights")

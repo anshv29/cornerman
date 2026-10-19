@@ -41,11 +41,13 @@ def test_import_copies_only_finished_fights(tmp_path: Path) -> None:
     (src / "overlays" / "ft_done.mp4").write_bytes(b"x")
     (src / "job_log.json").write_text(json.dumps([{"fight_id": "ft_done"}]))
     data = tmp_path / "data"
+    (data / "derived" / "ft_done" / "crop_features").mkdir(parents=True)  # run on the laptop
 
     done = import_outputs(src, data / "derived", data / "overlays", data / "logs", data / "crops")
     assert done == ["ft_done"]
     assert (data / "derived" / "ft_done" / "identity" / "manifest.json").exists()
     assert not (data / "derived" / "ft_half").exists()
+    assert (data / "derived" / "ft_done" / "crop_features").exists()
     assert (data / "overlays" / "ft_done.mp4").exists()
     assert (data / "logs" / "job_log_000.json").exists()
     assert (data / "crops" / "ft_done" / "000001_0000010.jpg").exists()

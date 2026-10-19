@@ -66,14 +66,18 @@ def import_outputs(
     """Copy a pulled job output into data/. Returns the fights that finished.
 
     Person crops go to `crops` (local only, never committed or put in DVC).
+    Stage folders the job didn't write are kept.
     """
     finished: list[str] = []
     for fight in sorted((src / "derived").glob("*")):
         if not (fight / FINAL_STAGE / "manifest.json").exists():
             continue
-        dest = derived / fight.name
-        shutil.rmtree(dest, ignore_errors=True)
-        shutil.copytree(fight, dest)
+        # Replace only the stages the job wrote; stages run on the laptop
+        # (crop features, identity) stay.
+        for stage in (p for p in fight.iterdir() if p.is_dir()):
+            dest = derived / fight.name / stage.name
+            shutil.rmtree(dest, ignore_errors=True)
+            shutil.copytree(stage, dest)
         finished.append(fight.name)
         if crops is not None:
             zipped = src / "crops" / f"{fight.name}.zip"
