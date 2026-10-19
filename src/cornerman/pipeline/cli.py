@@ -103,6 +103,12 @@ def main(argv: list[str] | None = None) -> int:
     p_probe.add_argument("--out", type=Path, default=PerceptionConfig().identity_probe)
     p_qual = sub.add_parser("identity-quality", help="identity confidence and flags per fight")
     p_qual.add_argument("--derived", type=Path, default=Path("data/derived"))
+    p_gold = sub.add_parser("gold-clips", help="sample candidate clips for the silver set")
+    p_gold.add_argument("--derived", type=Path, default=Path("data/derived"))
+    p_gold.add_argument("--n", type=int, default=400)
+    p_gold.add_argument("--clip-s", type=float, default=3.0)
+    p_gold.add_argument("--seed", type=int, default=0)
+    p_gold.add_argument("--out", type=Path, default=Path("data/gold/clips.parquet"))
     args = parser.parse_args(argv)
 
     if args.command == "identity-probe":
@@ -115,6 +121,8 @@ def main(argv: list[str] | None = None) -> int:
         print(q[["fight_id", "confidence", "flagged"]].round(3).to_string(index=False))
         print(f"{int(q['flagged'].sum())} of {len(q)} fights flagged")
         return 0
+    if args.command == "gold-clips":
+        return _gold_clips(args.derived, args.n, args.clip_s, args.seed, args.out)
     if args.command == "kaggle":
         return _kaggle(args)
     if args.command == "collect":
@@ -248,6 +256,25 @@ def _identity_probe(fights_file: Path, derived: Path, out: Path) -> int:
     y = np.concatenate(ys)
     train_probe(np.concatenate(xs), y).save(out)
     print(f"{out}: {int((y == 1).sum())} fighter and {int((y == 0).sum())} official crops")
+    return 0
+
+
+def _gold_clips(derived: Path, n: int, clip_s: float, seed: int, out: Path) -> int:
+    """Clips from fights whose identity isn't flagged, stratified by a position proxy."""
+    from cornerman.contracts.perception import usable_fights
+    from cornerman.gold.clips import fight_clips, sample
+
+    fights = usable_fights(derived)
+    clips = pd.concat([fight_clips(derived / f, clip_s) for f in fights], ignore_index=True)
+    chosen = sample(clips, n, seed)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    chosen.to_parquet(out, index=False)
+    print(f"{len(clips)} candidate clips in {len(fights)} usable fights")
+    counts = pd.DataFrame(
+        {"candidates": clips["stratum"].value_counts(), "chosen": chosen["stratum"].value_counts()}
+    )
+    print(counts.to_string())
+    print(f"{len(chosen)} clips from {chosen['fight_id'].nunique()} fights -> {out}")
     return 0
 
 
