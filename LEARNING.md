@@ -384,3 +384,22 @@ A smoke test showed YouTube doesn't block downloads from Kaggle, so the job down
 1. *Why train on labels from behaviour instead of labelling a few hundred crops?* The project rule is no hand labelling, and behaviour labels scale to any number of fights for free. The cost is noise, so the model is kept simple (linear) and checked on fights it never trained on.
 2. *Why report the variant that did worse?* Choosing between variants after seeing test results turns the test set into a development set and inflates the number. Both variants were fixed before the test, so both get reported.
 3. *Red and blue were never swapped, but 10 fights failed. What does that tell you?* The colour decision is reliable once the right two groups are chosen. The weak step is grouping and picking the fighters, so that is where the next work goes: only crops from fighting time, and ground positions assigned from the standing frames around them.
+
+## 20. Identity round 3: roles per crop, a confidence flag, and a second clean test
+
+**Problem.** Round 2 got red and blue right on 20 of 30 held-out fights. Its failures were mixing, not swapping: a tracklet that runs through a ground scramble or a tangle can follow one fighter and then the other, and giving the whole tracklet one role makes half of it wrong. Separately, later models need to know which fights to trust, without anyone checking montages.
+
+**How it works.**
+1. *People, then fighters, as before.* Per-fight embedding (DINOv2 features over the body, a small projection trained with a triplet loss), cannot-link clustering, and the fighter classifier pick the two fighters and the referee.
+2. *Roles per crop, not per tracklet.* Along each tracklet, every crop is scored against the red, blue and "other" centres, and a Viterbi pass picks the best sequence of roles with a cost for each switch. A single odd crop doesn't flip the role, but a real swap halfway through a tracklet does. Crops called "other" that sit nearest the referee group become referee. Boxes between crops take the role of the nearest crop of the same tracklet.
+3. *Fighting time twice.* The motion filter runs once on everyone (to pick crops) and again on the chosen fighters only (for the stats).
+4. *Confidence.* Four checks that need no labels, each scaled to 0..1 by a range set by reasoning, then averaged: one corner on two boxes in the same frame, how fighter-like the less fighter-like fighter is, the share of fighting-time crops given a corner, and how often red and blue are the closest pair when a third person is in view. A fight below 0.4 is flagged; `usable_fights` leaves flagged fights out.
+
+**What was tried and dropped.** Fighting-time-only grouping with ground crops filled in from standing frames (worse: 16 of 30), and a behavioural referee detector (the person who steps between the fighters), whose labels were only 35 to 50% precise.
+
+**How it was judged.** The 30 fights used in round 2 had been looked at, so they became development fights. The method and threshold were fixed and committed, and only then were the last 24 IMMAF fights processed and judged once. Result: 18 of 24 right (75%). The confidence ranks fights well (AUC 0.83) but the threshold of 0.4 was too low: unflagged fights were 15 of 19 right, and the flag caught only 2 of 6 wrong ones. Every fight scoring 0.5 or more was right.
+
+**Interview questions.**
+1. *Why a Viterbi pass instead of a majority vote per tracklet?* A majority vote assumes a tracklet is one person. Trackers swap identities in tangles, so the assumption fails exactly where it matters. Viterbi lets the role change along the tracklet, and the switch cost stops single noisy crops from changing it.
+2. *The confidence score had AUC 0.83 but the flag barely helped. How can both be true?* AUC measures ranking over all thresholds; the flag uses one threshold. The wrong fights all scored low, but in a band (0.32 to 0.49) above the cut-off picked on dev. The dev set had only 9 wrong fights, too few to place a threshold precisely.
+3. *Why not just move the threshold to 0.5 and report 13 of 13?* That threshold was picked after seeing the test, so 13 of 13 measures the choice, not the method. The honest numbers are the frozen ones (18 of 24; 15 of 19 unflagged). A new threshold needs a new clean test, or at least a pooled estimate labelled as optimistic.

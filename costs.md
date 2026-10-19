@@ -11,5 +11,6 @@ Cap: $50 USD total for GPU time and hosted APIs. Ask Ansh before spending anythi
 | 2026-10-18 | The 3 blocked pilot fights with the new code, about 40 minutes of free T4 x2 quota | Kaggle | 0.00 | 0.00 |
 | 2026-10-18 | Rerun of the 2 oldest pilot fights for crops and poses, about 25 minutes of free T4 x2 quota | Kaggle | 0.00 | 0.00 |
 | 2026-10-18 | 45 fights in 3 batches toward the 50-fight run, about 7.3 hours of free T4 x2 quota | Kaggle | 0.00 | 0.00 |
+| 2026-10-19 | The last 24 IMMAF fights (the held-out identity test), about 3.5 hours of free T4 x2 quota | Kaggle | 0.00 | 0.00 |
 
 Current total: **$0.00**
