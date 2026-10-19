@@ -1,10 +1,11 @@
 """The real perception pipeline end to end on a tiny synthetic video, on CPU.
 
-The three neural models are replaced by stand-ins (cuts from a known list,
-people found by colour, keypoints spread over the box). The tracker, identity,
-contracts, caching and overlay run for real.
+The four neural models are replaced by stand-ins (cuts from a known list,
+people found by colour, keypoints spread over the box, appearance = mean body
+colour). The tracker, identity, contracts, caching and overlay run for real.
 """
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +17,7 @@ pytest.importorskip("trackers")
 
 from cornerman.config import PathsConfig, PerceptionConfig, Settings  # noqa: E402
 from cornerman.perception import models  # noqa: E402
+from cornerman.perception.identity import Probe  # noqa: E402
 from cornerman.perception.stages import REAL_PIPELINE  # noqa: E402
 from cornerman.pipeline.runner import Status, run  # noqa: E402
 from cornerman.products.overlay import render  # noqa: E402
@@ -86,10 +88,27 @@ def _fake_pose(
     return out
 
 
+def _fake_embed(
+    inputs: list[np.ndarray], weights: list[np.ndarray], name: str, revision: str, device: str
+) -> np.ndarray:
+    """Appearance = mean colour (normalised RGB) over the body mask, in the first 3 of 384 dims."""
+    out = np.zeros((len(inputs), 384), np.float32)
+    for i, (x, w) in enumerate(zip(inputs, weights, strict=True)):
+        cell = np.kron(w.reshape(16, 16), np.ones((14, 14)))
+        out[i, :3] = (x * cell).sum((1, 2)) / max(float(cell.sum()), 1e-6)
+    return out / np.maximum(np.linalg.norm(out, axis=1, keepdims=True), 1e-6)
+
+
 def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(models, "cut_probabilities", _fake_cuts)
     monkeypatch.setattr(models, "detect_people", _fake_detect)
     monkeypatch.setattr(models, "estimate_poses", _fake_pose)
+    monkeypatch.setattr(models, "embed_crops", _fake_embed)
+    # Fighter score from the green channel: red (255, 0, 0) and blue (0, 0, 255) people
+    # have none, the grey referee has some.
+    w = np.zeros(384)
+    w[1] = -6.0
+    Probe(w=w, b=-1.0).save(tmp_path / "probe.npz")
     settings = Settings(
         pipeline="real",
         paths=PathsConfig(
@@ -102,7 +121,8 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
         perception=PerceptionConfig(
             fps=FPS,
             device="cpu",
-            min_track_frames=3,
+            crop_every_s=0.3,
+            identity_probe=tmp_path / "probe.npz",
             det_batch=7,
             min_height=200,
             fight_window_s=1.0,
@@ -128,7 +148,9 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
     assert set(roles["role"]) == {"red", "blue", "referee"}
     # Corners come from colour: the red-shorts person (left) is red, blue-shorts is blue,
     # grey (right) is the referee, on both sides of the cut.
-    t = tracks.merge(roles, on="track_id")
+    per_box = pd.read_parquet(d / "identity" / "roles.parquet")
+    assert len(per_box) == len(tracks)
+    t = tracks.merge(per_box, on=["frame", "track_id"])
     mean_x = t.groupby("role")["x1"].mean()
     assert mean_x["red"] < mean_x["blue"] < mean_x["referee"]
 
@@ -139,7 +161,14 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
     assert set(samples["part"]) == {"glove", "shin", "shorts"}
     crops = list((tmp_path / "crops" / "ft_test").glob("*.jpg"))
     assert crops, "expected person crops"
-    assert len(crops) <= tracks["track_id"].nunique() * 6 + 3  # about one per second
+    # About one per crop_every_s (0.3 s) per tracked person, over 6 s of video.
+    assert len(crops) <= tracks["track_id"].nunique() * 21
+
+    quality = json.loads((d / "identity" / "quality.json").read_text())
+    assert 0.0 <= quality["confidence"] <= 1.0
+    assert {"dup", "fighter_prob_min", "rb_share", "closest"} <= set(quality["checks"])
+    feats = np.load(d / "crop_features" / "features.npy")
+    assert len(feats) == len(pd.read_parquet(d / "crop_features" / "crops.parquet"))
 
     # Second run is fully cached.
     again = run(REAL_PIPELINE, settings, ["ft_test"])

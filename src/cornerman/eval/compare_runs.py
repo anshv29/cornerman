@@ -15,6 +15,8 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import linear_sum_assignment
 
+from cornerman.contracts.perception import load_roles, role_keys
+
 MIN_KP_CONF = 0.3
 
 
@@ -58,13 +60,14 @@ def match_boxes(a: pd.DataFrame, b: pd.DataFrame) -> pd.DataFrame:
 
 def _load(d: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     tracks = pd.read_parquet(d / "tracking" / "tracks.parquet")
-    roles = pd.read_parquet(d / "identity" / "identity.parquet")
+    roles = load_roles(d)
+    keys = role_keys(roles)
     poses = pd.read_parquet(d / "pose" / "poses.parquet")
     shots = pd.read_parquet(d / "shots" / "shots.parquet")
-    tracks = tracks.merge(roles[["track_id", "role"]], on="track_id", how="left")
+    tracks = tracks.merge(roles[[*keys, "role"]], on=keys, how="left")
     if "track_id" in poses.columns:
         # Track IDs differ between runs; compare the fighters' poses by role instead.
-        poses = poses.merge(roles[["track_id", "role"]], on="track_id")
+        poses = poses.merge(roles[[*keys, "role"]], on=keys)
         poses = poses[poses["role"].isin(["red", "blue"])]
         first = poses.drop_duplicates(["frame", "role"])[["frame", "role", "track_id"]]
         poses = poses.merge(first, on=["frame", "role", "track_id"])

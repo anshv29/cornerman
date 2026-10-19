@@ -15,6 +15,8 @@ Fighters are the red and blue corners.
 import numpy as np
 import pandas as pd
 
+from cornerman.contracts.perception import role_keys
+
 
 def role_switches(boxes: pd.DataFrame) -> int:
     """Count frames where the red corner's box is closer to blue's previous box than to its own.
@@ -50,7 +52,8 @@ def fight_metrics(
     if fighting is not None:
         live_frames = fighting.loc[fighting["fighting"], "frame"]
     n_live = max(len(live_frames), 1)
-    t = tracks.merge(roles[["track_id", "role"]], on="track_id")
+    keys = role_keys(roles)
+    t = tracks.merge(roles[[*keys, "role"]], on=keys)
     t = t[t["frame"].isin(live_frames)]
     per_frame = t.groupby("frame")["role"].agg(set)
     both = sum(1 for s in per_frame if {"red", "blue"} <= s)
@@ -62,8 +65,8 @@ def fight_metrics(
     )
     live_minutes = n_live * step_seconds / 60
     if "track_id" in poses.columns:
-        fighter_ids = roles.loc[roles["role"].isin(["red", "blue"]), "track_id"]
-        poses = poses[poses["track_id"].isin(fighter_ids) & poses["frame"].isin(live_frames)]
+        fighter_boxes = t.loc[t["role"].isin(["red", "blue"]), ["frame", "track_id"]]
+        poses = poses.merge(fighter_boxes.drop_duplicates(), on=["frame", "track_id"])
     return {
         "live_frac": len(live_frames) / max(len(frames), 1),
         "live_minutes": live_minutes,

@@ -77,10 +77,6 @@ class PerceptionConfig(BaseModel):
     crop_height: int = Field(default=160, ge=16)
     kp_min_conf: float = Field(default=0.3, ge=0, le=1)
     """Keypoints below this confidence aren't used for colour samples."""
-    min_track_frames: int = Field(default=5, ge=1)
-    max_role_distance: float = Field(default=2.0, gt=0)
-    """Tracklets further than this from every allowed group are 'other'. Units of the
-    identity features: 1.0 is 40 Lab chroma units, about a full red glove vs black."""
     live_min_frac: float = Field(default=0.5, gt=0, le=1)
     """A shot is live if at least this share of its frames shows 2+ large people."""
     fight_window_s: float = Field(default=10.0, gt=0)
@@ -89,6 +85,17 @@ class PerceptionConfig(BaseModel):
     pilot, rounds ran at 0.3 to 0.6 and breaks near 0.1; 0.2 gave 9.3 and 9.5 minutes."""
     fight_min_gap_s: float = Field(default=8.0, ge=0)
     fight_min_run_s: float = Field(default=15.0, ge=0)
+    crop_model: str = "facebook/dinov2-small"
+    """Appearance features for person crops (Apache 2.0), used by identity."""
+    crop_revision: str = "ed25f3a31f01"
+    merged_ratio: float = Field(default=1.6, gt=1)
+    """A crop whose box is this many times wider (relative to height) than the fight's
+    median box is "merged": in a clinch, one box around both fighters."""
+    identity_probe: Path = Path(__file__).parent / "perception" / "identity_probe.npz"
+    """Fighter-versus-official classifier weights (`cornerman identity-probe` writes them).
+    Shipped inside the package so the Kaggle job, which pip-installs it, has them too."""
+    identity_flag_below: float = Field(default=0.4, ge=0, le=1)
+    """Fights whose identity confidence is below this are flagged (quality.json)."""
     pose_model: str = "usyd-community/vitpose-plus-large"
     pose_revision: str = "e211df377e49"
     pose_batch: int = Field(default=16, ge=1)

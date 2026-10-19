@@ -6,8 +6,10 @@ after the raw folder was deleted fetches the video and rebuilds the cache.
 
 Order: ingest, shots, tracking (people on the canvas, plus person crops), pose
 (everyone tracked in live shots, plus colour samples at gloves, shins and
-shorts), identity (red, blue, referee, other, from those samples; no GPU),
-and the fighting-time filter, which needs to know who the fighters are.
+shorts), crop_features (appearance, torso angle and kit colour per crop), and
+identity (red, blue, referee, other per box, a confidence flag, and the
+fighting-time filter, which needs to know who the fighters are). Identity
+needs no GPU; crop_features uses one if there is one.
 """
 
 import json
@@ -19,12 +21,16 @@ import cv2
 import numpy as np
 import pandas as pd
 
+from cornerman.config import Settings
 from cornerman.contracts.perception import (
     IDENTITY_SCHEMA,
     POSES_SCHEMA,
+    ROLES_SCHEMA,
     TRACKS_SCHEMA,
+    role_keys,
     validate,
 )
+from cornerman.perception import crop_features as cf
 from cornerman.perception import models
 from cornerman.perception.activity import fighting_frames
 from cornerman.perception.appearance import N_FEATURES, box_features
@@ -36,7 +42,17 @@ from cornerman.perception.decode import (
     iter_cached,
     small_frames,
 )
-from cornerman.perception.identity import FIGHTERS, assign_roles, live_shots
+from cornerman.perception.identity import (
+    FIGHTERS,
+    IdentityParams,
+    Probe,
+    assign,
+    box_roles,
+    confidence,
+    label_free_checks,
+    live_shots,
+    tracklet_roles,
+)
 from cornerman.perception.kitcolour import COLUMNS as SAMPLE_COLUMNS
 from cornerman.perception.kitcolour import empty_samples, sample_person
 from cornerman.perception.shots import shot_of_frame, shots_from_probs
@@ -274,29 +290,71 @@ def _empty_poses() -> pd.DataFrame:
     )
 
 
+def crop_features(ctx: StageContext) -> None:
+    """Appearance vector, torso angle, kit colour and merged flag per saved person crop."""
+    p = ctx.settings.perception
+    tracks = pd.read_parquet(ctx.inputs["tracking"] / "tracks.parquet")
+    poses = pd.read_parquet(ctx.inputs["pose"] / "poses.parquet")
+    meta = cf.crop_index(ctx.settings.paths.crops / ctx.fight_id, tracks, p.merged_ratio)
+    if meta.empty:
+        raise QuarantineError("no person crops (data/crops missing for this fight?)")
+    table, inputs, weights, hue = cf.describe(meta, poses)
+    device = models.pick_device(p.device)
+    feats = models.embed_crops(inputs, weights, p.crop_model, p.crop_revision, device)
+    table.to_parquet(ctx.out_dir / "crops.parquet", index=False)
+    np.save(ctx.out_dir / "features.npy", feats)
+    np.save(ctx.out_dir / "hue.npy", hue)
+
+
+def _crop_files(fight_id: str, settings: Settings) -> list[Path]:
+    return sorted((settings.paths.crops / fight_id).glob("*.jpg"))
+
+
+def _probe_file(fight_id: str, settings: Settings) -> list[Path]:
+    return [settings.perception.identity_probe]
+
+
 def identity(ctx: StageContext) -> None:
-    """Corners and referee from the colour samples, then which frames are fighting."""
+    """Red, blue, referee per box (identity round 3), fighting time, and a confidence flag."""
     p = ctx.settings.perception
     tracks = pd.read_parquet(ctx.inputs["tracking"] / "tracks.parquet")
     frames = pd.read_parquet(ctx.inputs["tracking"] / "frames.parquet")
     live = pd.read_parquet(ctx.inputs["tracking"] / "live.parquet")
-    samples = pd.read_parquet(ctx.inputs["pose"] / "samples.parquet")
+    crops = pd.read_parquet(ctx.inputs["crop_features"] / "crops.parquet")
+    feats = np.load(ctx.inputs["crop_features"] / "features.npy")
+    hue = np.load(ctx.inputs["crop_features"] / "hue.npy")
     if tracks.empty:
         raise QuarantineError("no people tracked")
-    roles = assign_roles(tracks, samples, p.min_track_frames, p.max_role_distance)
-    validate(IDENTITY_SCHEMA, roles, "identity").to_parquet(
-        ctx.out_dir / "identity.parquet", index=False
-    )
+    params = IdentityParams(flag_below=p.identity_flag_below)
+    live_ids = set(live.loc[live["live"], "shot_id"].tolist())
+    in_live = tracks[tracks["shot_id"].isin(live_ids)]
+    result = assign(in_live, crops, feats, hue, Probe.load(p.identity_probe), params)
+    boxes = box_roles(tracks, result.crop_roles)
     fighting = fighting_frames(
         frames,
-        fighter_boxes(tracks, roles, live),
-        set(live.loc[live["live"], "shot_id"].tolist()),
+        fighter_boxes(tracks, boxes, live),
+        live_ids,
         p.fight_window_s,
         p.fight_min_speed,
         p.fight_min_gap_s,
         p.fight_min_run_s,
     )
+    fight_set = set(fighting.loc[fighting["fighting"], "frame"].tolist())
+    checked = box_roles(tracks, result.crop_roles, fill=False)
+    stats = {**result.stats, **label_free_checks(in_live, checked, result.crop_roles, fight_set)}
+    score = confidence(stats)
+    quality = {
+        "confidence": score,
+        "flagged": bool(score < params.flag_below or stats.get("failed", 0.0) > 0),
+        "flag_below": params.flag_below,
+        "checks": stats,
+    }
+    validate(ROLES_SCHEMA, boxes, "roles").to_parquet(ctx.out_dir / "roles.parquet", index=False)
+    validate(IDENTITY_SCHEMA, tracklet_roles(boxes), "identity").to_parquet(
+        ctx.out_dir / "identity.parquet", index=False
+    )
     fighting.to_parquet(ctx.out_dir / "fighting.parquet", index=False)
+    (ctx.out_dir / "quality.json").write_text(json.dumps(quality, indent=2, sort_keys=True))
 
 
 def fighter_boxes(
@@ -305,8 +363,11 @@ def fighter_boxes(
     live: pd.DataFrame,
     fighting: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """At most one box per fighter per frame, from live shots (and fighting frames, if given)."""
-    t = tracks.merge(roles[["track_id", "role"]], on="track_id")
+    """At most one box per fighter per frame, from live shots (and fighting frames, if given).
+
+    `roles` is per box (frame, track_id, role) or per tracklet (track_id, role).
+    """
+    t = tracks.merge(roles[[*role_keys(roles), "role"]], on=role_keys(roles))
     t = t[t["role"].isin(FIGHTERS) & t["shot_id"].isin(live.loc[live["live"], "shot_id"])]
     if fighting is not None:
         t = t[t["frame"].isin(fighting.loc[fighting["fighting"], "frame"])]
@@ -358,16 +419,28 @@ REAL_PIPELINE: list[Stage] = [
         ),
     ),
     Stage(
-        "identity",
-        identity,
+        "crop_features",
+        crop_features,
         deps=("tracking", "pose"),
         config_keys=(
-            "perception.min_track_frames",
-            "perception.max_role_distance",
+            "perception.crop_model",
+            "perception.crop_revision",
+            "perception.merged_ratio",
+        ),
+        sources=_crop_files,
+    ),
+    Stage(
+        "identity",
+        identity,
+        deps=("tracking", "crop_features"),
+        config_keys=(
+            "perception.identity_flag_below",
             "perception.fight_window_s",
             "perception.fight_min_speed",
             "perception.fight_min_gap_s",
             "perception.fight_min_run_s",
         ),
+        version="3",
+        sources=_probe_file,
     ),
 ]

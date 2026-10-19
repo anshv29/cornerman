@@ -1,5 +1,6 @@
-"""Data contracts for perception outputs: tracks, identity and poses."""
+"""Data contracts for perception outputs: tracks, identity, roles per box and poses."""
 
+from pathlib import Path
 from typing import cast
 
 import pandas as pd
@@ -38,6 +39,56 @@ IDENTITY_SCHEMA = pa.DataFrameSchema(
     },
     strict=True,
 )
+
+ROLES_SCHEMA = pa.DataFrameSchema(
+    {
+        "frame": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "track_id": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "role": pa.Column(str, pa.Check.isin([*ROLES, OTHER])),  # pyright: ignore[reportUnknownMemberType]
+    },
+    unique=["frame", "track_id"],
+    strict=True,
+)
+"""One role per tracked box. A tracklet can change role (tracker ID switches in tangles)."""
+
+
+def role_keys(roles: pd.DataFrame) -> list[str]:
+    """Join keys for a roles table: per box if it has a frame column, else per tracklet."""
+    return ["frame", "track_id"] if "frame" in roles.columns else ["track_id"]
+
+
+def load_roles(fight_dir: Path) -> pd.DataFrame:
+    """Roles for a processed fight: per box (roles.parquet) if the fight has it, else per
+    tracklet (identity.parquet, fights processed before identity round 3)."""
+    per_box = fight_dir / "identity" / "roles.parquet"
+    if per_box.exists():
+        return pd.read_parquet(per_box)
+    return pd.read_parquet(fight_dir / "identity" / "identity.parquet")
+
+
+def identity_quality(derived: Path) -> pd.DataFrame:
+    """One row per fight with identity round 3 output: fight_id, confidence, flagged, checks."""
+    import json
+
+    rows: list[dict[str, object]] = []
+    for q in sorted(derived.glob("*/identity/quality.json")):
+        data = json.loads(q.read_text())
+        rows.append(
+            {
+                "fight_id": q.parent.parent.name,
+                "confidence": float(data["confidence"]),
+                "flagged": bool(data["flagged"]),
+                **{k: float(v) for k, v in data["checks"].items()},
+            }
+        )
+    return pd.DataFrame(rows, columns=["fight_id", "confidence", "flagged"] if not rows else None)
+
+
+def usable_fights(derived: Path) -> list[str]:
+    """Fights whose identity isn't flagged. Later models should train and test on these only."""
+    q = identity_quality(derived)
+    return sorted(q.loc[~q["flagged"], "fight_id"].tolist()) if len(q) else []
+
 
 POSES_SCHEMA = pa.DataFrameSchema(
     {

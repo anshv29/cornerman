@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
+from cornerman.contracts.perception import load_roles, role_keys
 from cornerman.perception.identity import OTHER
 from cornerman.perception.video import frame_step, iter_frames
 
@@ -44,12 +45,13 @@ def render(
     fps = float(vinfo["fps"])
     step = frame_step(fps, target_fps)
     tracks = pd.read_parquet(derived / "tracking" / "tracks.parquet")
-    roles = pd.read_parquet(derived / "identity" / "identity.parquet")
+    roles = load_roles(derived)
+    keys = role_keys(roles)
     live = pd.read_parquet(derived / "tracking" / "live.parquet")
     poses = pd.read_parquet(derived / "pose" / "poses.parquet")
-    poses = poses.merge(roles[["track_id", "role"]], on="track_id", how="left")
+    poses = poses.merge(roles[[*keys, "role"]], on=keys, how="left")
     poses["role"] = poses["role"].fillna(OTHER)
-    tracks = tracks.merge(roles[["track_id", "role"]], on="track_id", how="left")
+    tracks = tracks.merge(roles[[*keys, "role"]], on=keys, how="left")
     tracks["role"] = tracks["role"].fillna(OTHER)
     live_ids = set(live.loc[live["live"], "shot_id"])
     live_frames = set(tracks.loc[tracks["shot_id"].isin(live_ids), "frame"])

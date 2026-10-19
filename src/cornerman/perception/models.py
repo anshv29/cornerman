@@ -22,7 +22,9 @@ def pick_device(device: str) -> str:
         return device
     import torch
 
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.cuda.is_available():
+        return "cuda"
+    return "mps" if torch.backends.mps.is_available() else "cpu"
 
 
 @cache
@@ -152,3 +154,33 @@ def estimate_poses(
         scores = np.array([p["scores"].cpu().numpy() for p in per_image]).reshape(-1, 17)
         out.append((kps, scores))
     return out
+
+
+@cache
+def _crop_model(name: str, revision: str, device: str) -> Any:
+    from transformers import AutoModel
+
+    model = cast(Any, AutoModel.from_pretrained(name, revision=revision))  # pyright: ignore[reportUnknownMemberType]
+    return model.to(device).eval()
+
+
+def embed_crops(
+    inputs: list[np.ndarray], weights: list[np.ndarray], name: str, revision: str, device: str
+) -> np.ndarray:
+    """Appearance vectors for person crops: patch features averaged with per-patch weights.
+
+    `inputs` are normalised (3, 224, 224) crops and `weights` (256,) body-mask weights
+    per patch (crop_features.model_input). Returns unit-length rows, (n, hidden size).
+    """
+    import torch
+
+    model = _crop_model(name, revision, device)
+    out: list[np.ndarray] = []
+    for i in range(0, len(inputs), 64):
+        x = torch.tensor(np.stack(inputs[i : i + 64]), dtype=torch.float32, device=device)
+        with torch.no_grad():
+            patches = model(pixel_values=x).last_hidden_state[:, 1:, :].cpu().numpy()
+        w = np.stack(weights[i : i + 64])
+        out.append((patches * w[:, :, None]).sum(1) / np.maximum(w.sum(1, keepdims=True), 1e-6))
+    f = np.concatenate(out) if out else np.zeros((0, 384), np.float32)
+    return (f / np.maximum(np.linalg.norm(f, axis=1, keepdims=True), 1e-6)).astype(np.float32)

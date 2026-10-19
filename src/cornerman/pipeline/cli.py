@@ -17,7 +17,8 @@ from pathlib import Path
 import pandas as pd
 
 from cornerman.collect.run import collect
-from cornerman.config import load_settings
+from cornerman.config import PerceptionConfig, load_settings
+from cornerman.contracts.perception import load_roles
 from cornerman.pipeline.runner import run
 from cornerman.pipeline.stage import Stage
 from cornerman.pipeline.stages import PIPELINE
@@ -93,8 +94,26 @@ def main(argv: list[str] | None = None) -> int:
     p_cmp = sub.add_parser("compare", help="check two runs of the same fight agree")
     p_cmp.add_argument("--a", type=Path, required=True, help="derived/{fight_id} of run A")
     p_cmp.add_argument("--b", type=Path, required=True)
+    p_probe = sub.add_parser(
+        "identity-probe", help="train the fighter-versus-official classifier for identity"
+    )
+    p_probe.add_argument("--fights", type=Path, required=True, help="file of fight IDs")
+    p_probe.add_argument("--derived", type=Path, default=Path("data/derived"))
+    p_probe.add_argument("--out", type=Path, default=PerceptionConfig().identity_probe)
+    p_qual = sub.add_parser("identity-quality", help="identity confidence and flags per fight")
+    p_qual.add_argument("--derived", type=Path, default=Path("data/derived"))
     args = parser.parse_args(argv)
 
+    if args.command == "identity-probe":
+        return _identity_probe(args.fights, args.derived, args.out)
+    if args.command == "identity-quality":
+        from cornerman.contracts.perception import identity_quality
+
+        q = identity_quality(args.derived)
+        q.to_parquet(args.derived / "identity_quality.parquet", index=False)
+        print(q[["fight_id", "confidence", "flagged"]].round(3).to_string(index=False))
+        print(f"{int(q['flagged'].sum())} of {len(q)} fights flagged")
+        return 0
     if args.command == "kaggle":
         return _kaggle(args)
     if args.command == "collect":
@@ -203,6 +222,32 @@ def _kaggle(args: argparse.Namespace) -> int:
     return 0
 
 
+def _identity_probe(fights_file: Path, derived: Path, out: Path) -> int:
+    """Behaviour labels on these fights' crops, then a logistic regression on their features."""
+    import numpy as np
+
+    from cornerman.perception.identity import behaviour_labels, train_probe
+
+    xs: list[np.ndarray] = []
+    ys: list[np.ndarray] = []
+    for fid in fights_file.read_text().split():
+        d = derived / fid
+        crops = pd.read_parquet(d / "crop_features" / "crops.parquet")
+        feats = np.load(d / "crop_features" / "features.npy")
+        lab = behaviour_labels(
+            pd.read_parquet(d / "tracking" / "tracks.parquet"),
+            pd.read_parquet(d / "pose" / "poses.parquet"),
+            crops,
+        )
+        ok = (lab >= 0) & crops["has_mask"].to_numpy(dtype=bool)
+        xs.append(feats[ok])
+        ys.append(lab[ok])
+    y = np.concatenate(ys)
+    train_probe(np.concatenate(xs), y).save(out)
+    print(f"{out}: {int((y == 1).sum())} fighter and {int((y == 0).sum())} official crops")
+    return 0
+
+
 def _metrics(derived: Path, fps: float) -> int:
     from cornerman.eval.perception_metrics import fight_metrics
 
@@ -214,7 +259,7 @@ def _metrics(derived: Path, fps: float) -> int:
         m = fight_metrics(
             frames=pd.read_parquet(d / "tracking" / "frames.parquet"),
             tracks=pd.read_parquet(d / "tracking" / "tracks.parquet"),
-            roles=pd.read_parquet(d / "identity" / "identity.parquet"),
+            roles=load_roles(d),
             live=pd.read_parquet(d / "tracking" / "live.parquet"),
             poses=pd.read_parquet(d / "pose" / "poses.parquet"),
             step_seconds=1 / fps,
