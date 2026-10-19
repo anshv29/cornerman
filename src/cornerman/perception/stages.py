@@ -27,7 +27,7 @@ from cornerman.contracts.perception import (
     POSES_SCHEMA,
     ROLES_SCHEMA,
     TRACKS_SCHEMA,
-    role_keys,
+    fighter_boxes,
     validate,
 )
 from cornerman.perception import crop_features as cf
@@ -43,7 +43,6 @@ from cornerman.perception.decode import (
     small_frames,
 )
 from cornerman.perception.identity import (
-    FIGHTERS,
     IdentityParams,
     Probe,
     assign,
@@ -355,24 +354,6 @@ def identity(ctx: StageContext) -> None:
     )
     fighting.to_parquet(ctx.out_dir / "fighting.parquet", index=False)
     (ctx.out_dir / "quality.json").write_text(json.dumps(quality, indent=2, sort_keys=True))
-
-
-def fighter_boxes(
-    tracks: pd.DataFrame,
-    roles: pd.DataFrame,
-    live: pd.DataFrame,
-    fighting: pd.DataFrame | None = None,
-) -> pd.DataFrame:
-    """At most one box per fighter per frame, from live shots (and fighting frames, if given).
-
-    `roles` is per box (frame, track_id, role) or per tracklet (track_id, role).
-    """
-    t = tracks.merge(roles[[*role_keys(roles), "role"]], on=role_keys(roles))
-    t = t[t["role"].isin(FIGHTERS) & t["shot_id"].isin(live.loc[live["live"], "shot_id"])]
-    if fighting is not None:
-        t = t[t["frame"].isin(fighting.loc[fighting["fighting"], "frame"])]
-    t = t.sort_values(["frame", "role", "score"], ascending=[True, True, False])
-    return t.drop_duplicates(["frame", "role"]).reset_index(drop=True)
 
 
 REAL_PIPELINE: list[Stage] = [

@@ -9,11 +9,11 @@ import pytest
 
 pytest.importorskip("cv2")
 
+from cornerman.contracts.perception import fighter_boxes
 from cornerman.eval.perception_metrics import fight_metrics, role_switches
 from cornerman.perception.appearance import N_FEATURES, box_features
 from cornerman.perception.identity import corner_fighters, live_shots
 from cornerman.perception.shots import shot_of_frame, shots_from_probs
-from cornerman.perception.stages import fighter_boxes
 from cornerman.perception.video import frame_step
 
 

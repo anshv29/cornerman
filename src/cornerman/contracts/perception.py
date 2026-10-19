@@ -7,7 +7,7 @@ import pandas as pd
 import pandera.pandas as pa
 from pandera.errors import SchemaErrors
 
-from cornerman.perception.identity import OTHER, ROLES
+from cornerman.perception.identity import FIGHTERS, OTHER, ROLES
 from cornerman.pipeline.stage import QuarantineError
 
 _BOX = {c: pa.Column(float) for c in ("x1", "y1", "x2", "y2")}
@@ -82,6 +82,24 @@ def identity_quality(derived: Path) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows, columns=["fight_id", "confidence", "flagged"] if not rows else None)
+
+
+def fighter_boxes(
+    tracks: pd.DataFrame,
+    roles: pd.DataFrame,
+    live: pd.DataFrame,
+    fighting: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """At most one box per fighter per frame, from live shots (and fighting frames, if given).
+
+    `roles` is per box (frame, track_id, role) or per tracklet (track_id, role).
+    """
+    t = tracks.merge(roles[[*role_keys(roles), "role"]], on=role_keys(roles))
+    t = t[t["role"].isin(FIGHTERS) & t["shot_id"].isin(live.loc[live["live"], "shot_id"])]
+    if fighting is not None:
+        t = t[t["frame"].isin(fighting.loc[fighting["fighting"], "frame"])]
+    t = t.sort_values(["frame", "role", "score"], ascending=[True, True, False])
+    return t.drop_duplicates(["frame", "role"]).reset_index(drop=True)
 
 
 def usable_fights(derived: Path) -> list[str]:
