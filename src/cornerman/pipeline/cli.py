@@ -379,12 +379,14 @@ def _gold_vlm(args: argparse.Namespace) -> int:
         src = kaggle.pull_output(str(kaggle.read_kernel_metadata(VLM_KERNEL)["id"]), out)
         dest = Path("data/gold/vlm")
         dest.mkdir(parents=True, exist_ok=True)
-        stamp = len(list(dest.glob("labels_*.jsonl")))
+        stamp = len(list(dest.glob("log_*.json")))
+        copied: list[str] = []
         for name, target in (("vlm_labels.jsonl", "labels"), ("vlm_log.json", "log")):
             if (src / name).exists():
-                ext = Path(name).suffix
-                shutil.copy2(src / name, dest / f"{target}_{stamp:03d}{ext}")
-        print(f"labels and log saved in {dest} as run {stamp:03d}")
+                path = dest / f"{target}_{stamp:03d}{Path(name).suffix}"
+                shutil.copy2(src / name, path)
+                copied.append(path.name)
+        print(f"saved {', '.join(copied)} in {dest}" if copied else "the job wrote no labels")
         if kaggle.dataset_exists(ref):
             kaggle.delete_dataset(ref)
             print(f"deleted {ref}, so no clips stay on Kaggle")
