@@ -131,3 +131,56 @@ def coarse(red: State, blue: State) -> set[str]:
 def agrees(red: State, blue: State, rules: str | None) -> bool:
     """True if the rules' coarse label fits the fine state pair."""
     return rules is not None and rules in coarse(red, blue)
+
+
+def _keypoints(poses: pd.DataFrame) -> dict[tuple[int, int], np.ndarray]:
+    """(frame, track_id) -> (17, 3) array of x, y, conf."""
+    out: dict[tuple[int, int], np.ndarray] = {}
+    for (f, t), g in poses.groupby(["frame", "track_id"]):
+        kp = np.zeros((17, 3))
+        kp[g["kp"].to_numpy(int)] = g[["x", "y", "conf"]].to_numpy(float)
+        out[(int(f), int(t))] = kp  # pyright: ignore[reportArgumentType]
+    return out
+
+
+def label_clips(
+    frames: pd.DataFrame, boxes: pd.DataFrame, poses: pd.DataFrame, clips: pd.DataFrame
+) -> pd.DataFrame:
+    """Labeller A per clip of one fight: clip_id, rules (coarse label or None),
+    n_frames (frames with both fighters posed).
+
+    `boxes` is one box per fighter per frame (contracts.perception.fighter_boxes).
+    """
+    kps = _keypoints(poses)
+    by_role: dict[str, dict[int, tuple[int, float, float, float, float]]] = {"red": {}, "blue": {}}
+    for role, f, tid, x1, y1, x2, y2 in zip(
+        boxes["role"], boxes["frame"], boxes["track_id"],
+        boxes["x1"], boxes["y1"], boxes["x2"], boxes["y2"], strict=True,
+    ):  # fmt: skip
+        if role in by_role:
+            by_role[str(role)][int(f)] = (int(tid), float(x1), float(y1), float(x2), float(y2))
+    red, blue = by_role["red"], by_role["blue"]
+    rows: list[dict[str, object]] = []
+    t = frames["t"].to_numpy(float)
+    idx = frames["frame"].to_numpy(int)
+    for cid, t0, t1 in zip(clips["clip_id"], clips["t0"], clips["t1"], strict=True):
+        labels: list[str | None] = []
+        for f in idx[(t >= float(t0)) & (t < float(t1))].tolist():
+            if f not in red or f not in blue:
+                continue
+            (rt, *r), (bt, *b) = red[f], blue[f]
+            gap, iou = gap_iou(r, b)
+            labels.append(frame_label(kps.get((f, rt)), kps.get((f, bt)), gap, iou))
+        known = [x for x in labels if x is not None]
+        rows.append({"clip_id": cid, "rules": clip_label(labels), "n_frames": len(known)})
+    return pd.DataFrame(rows)
+
+
+def gap_iou(a: list[float], b: list[float]) -> tuple[float, float]:
+    """Centre distance in mean box heights, and IoU, of two x1, y1, x2, y2 boxes."""
+    h = ((a[3] - a[1]) + (b[3] - b[1])) / 2
+    gap = float(np.hypot((a[0] + a[2] - b[0] - b[2]) / 2, (a[1] + a[3] - b[1] - b[3]) / 2))
+    iw = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    ih = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - iw * ih
+    return gap / max(h, 1.0), iw * ih / max(union, 1.0)

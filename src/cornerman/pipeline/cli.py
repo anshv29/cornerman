@@ -132,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     p_vpush.add_argument("--models", default="4b,8b", help="comma list of " + ",".join(VLMS))
     p_vpush.add_argument("--per-stratum", type=int, default=0, help="0 = every clip")
     vlm.add_parser("import", help="pull the labels and delete the clips dataset")
+    sub.add_parser("gold-rules", help="labeller A on the sampled clips")
     sub.add_parser("gold-vicos", help="measure the rules labeller on ViCoS jiu-jitsu (local)")
     args = parser.parse_args(argv)
 
@@ -149,6 +150,8 @@ def main(argv: list[str] | None = None) -> int:
         return _gold_clips(args.derived, args.n, args.clip_s, args.seed, args.out)
     if args.command == "gold-cut":
         return _gold_cut(args.clips, args.config, args.fights_csv, args.out)
+    if args.command == "gold-rules":
+        return _gold_rules(Path("data/gold/clips.parquet"), Path("data/derived"))
     if args.command == "gold-vicos":
         from cornerman.gold.vicos import load, rules_on_frames, rules_report
 
@@ -331,6 +334,38 @@ def _gold_cut(clips_path: Path, config: Path, fights_csv: Path, out: Path) -> in
     )
     print(report["status"].str.split(":").str[0].value_counts().to_string())
     print(f"{len(list(out.glob('*.mp4')))} of {len(clips)} clips in {out}")
+    return 0
+
+
+def _gold_rules(clips_path: Path, derived: Path) -> int:
+    from cornerman.contracts.perception import fighter_boxes
+    from cornerman.gold.rules import label_clips
+
+    clips = pd.read_parquet(clips_path)
+    out: list[pd.DataFrame] = []
+    for fid, group in clips.groupby("fight_id"):
+        d = derived / str(fid)
+        boxes = fighter_boxes(
+            pd.read_parquet(d / "tracking" / "tracks.parquet"),
+            load_roles(d),
+            pd.read_parquet(d / "tracking" / "live.parquet"),
+        )
+        out.append(
+            label_clips(
+                pd.read_parquet(d / "tracking" / "frames.parquet"),
+                boxes,
+                pd.read_parquet(d / "pose" / "poses.parquet"),
+                group,
+            )
+        )
+    labels = pd.concat(out, ignore_index=True)
+    labels.to_parquet(clips_path.parent / "rules.parquet", index=False)
+    print(
+        pd.crosstab(
+            clips.set_index("clip_id")["stratum"],
+            labels.set_index("clip_id")["rules"].fillna("none"),
+        ).to_string()
+    )
     return 0
 
 

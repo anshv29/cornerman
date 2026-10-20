@@ -103,18 +103,13 @@ def rules_on_frames(frames: pd.DataFrame) -> pd.DataFrame:
     Boxes are the keypoint extents (ViCoS has no detector boxes). Adds `rules`,
     `level` (standing or ground, from ViCoS) and `truth_top` (red, blue or None).
     """
-    from cornerman.gold.rules import frame_label
+    from cornerman.gold.rules import frame_label, gap_iou
 
     both = frames[frames["pose1"].notna() & frames["pose2"].notna()].copy()
     labels: list[str | None] = []
     for p1, p2 in zip(both["pose1"], both["pose2"], strict=True):
-        a, b = _box(p1), _box(p2)
-        h = ((a[3] - a[1]) + (b[3] - b[1])) / 2
-        gap = float(np.hypot((a[0] + a[2] - b[0] - b[2]) / 2, (a[1] + a[3] - b[1] - b[3]) / 2))
-        iw = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
-        ih = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
-        union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - iw * ih
-        labels.append(frame_label(p1, p2, gap / max(h, 1.0), iw * ih / max(union, 1.0)))
+        gap, iou = gap_iou(list(_box(p1)), list(_box(p2)))
+        labels.append(frame_label(p1, p2, gap, iou))
     both["rules"] = labels
     both["level"] = np.where(both["state1"] == State.STANDING_NEUTRAL.value, "standing", "ground")
     top: list[str | None] = [
