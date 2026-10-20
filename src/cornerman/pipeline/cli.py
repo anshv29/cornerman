@@ -27,6 +27,16 @@ from cornerman.remote import batch, kaggle, videos
 
 KAGGLE_BUILD = Path("kaggle/build")
 PERCEPTION_KERNEL = Path("kaggle/perception")
+VLM_KERNEL = Path("kaggle/vlm")
+VLMS: dict[str, dict[str, object]] = {
+    "2b": {"name": "Qwen/Qwen3-VL-2B-Instruct",
+           "revision": "89644892e4d85e24eaac8bacfd4f463576704203"},
+    "4b": {"name": "Qwen/Qwen3-VL-4B-Instruct",
+           "revision": "ebb281ec70b05090aa6165b016eac8ec08e71b17"},
+    "8b": {"name": "Qwen/Qwen3-VL-8B-Instruct",
+           "revision": "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"},
+}  # fmt: skip
+"""Pinned Qwen3-VL revisions (Apache 2.0), DECISIONS.md."""
 
 
 def pipeline_for(name: str) -> list[Stage]:
@@ -114,6 +124,14 @@ def main(argv: list[str] | None = None) -> int:
     p_cut.add_argument("--config", type=Path, default=Path("configs/kaggle_real.yaml"))
     p_cut.add_argument("--fights-csv", type=Path, default=Path("data/fights.csv"))
     p_cut.add_argument("--out", type=Path, default=Path("data/gold/clips"))
+    p_vlm = sub.add_parser("gold-vlm", help="label silver-set clips with a VLM on Kaggle")
+    vlm = p_vlm.add_subparsers(dest="vlm_command", required=True)
+    p_vpush = vlm.add_parser("push", help="upload the clips privately and start the job")
+    p_vpush.add_argument("--clips", type=Path, default=Path("data/gold/clips.parquet"))
+    p_vpush.add_argument("--clip-dir", type=Path, default=Path("data/gold/clips"))
+    p_vpush.add_argument("--models", default="4b,8b", help="comma list of " + ",".join(VLMS))
+    p_vpush.add_argument("--per-stratum", type=int, default=0, help="0 = every clip")
+    vlm.add_parser("import", help="pull the labels and delete the clips dataset")
     args = parser.parse_args(argv)
 
     if args.command == "identity-probe":
@@ -130,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
         return _gold_clips(args.derived, args.n, args.clip_s, args.seed, args.out)
     if args.command == "gold-cut":
         return _gold_cut(args.clips, args.config, args.fights_csv, args.out)
+    if args.command == "gold-vlm":
+        return _gold_vlm(args)
     if args.command == "kaggle":
         return _kaggle(args)
     if args.command == "collect":
@@ -304,6 +324,44 @@ def _gold_cut(clips_path: Path, config: Path, fights_csv: Path, out: Path) -> in
     )
     print(report["status"].str.split(":").str[0].value_counts().to_string())
     print(f"{len(list(out.glob('*.mp4')))} of {len(clips)} clips in {out}")
+    return 0
+
+
+def _gold_vlm(args: argparse.Namespace) -> int:
+    from cornerman.remote.batch import REPO, pushed_commit
+
+    ref = f"{_kaggle_user()}/{videos.CLIPS_SLUG}"
+    if args.vlm_command == "import":
+        out = KAGGLE_BUILD / "vlm_output"
+        shutil.rmtree(out, ignore_errors=True)
+        src = kaggle.pull_output(str(kaggle.read_kernel_metadata(VLM_KERNEL)["id"]), out)
+        dest = Path("data/gold/vlm")
+        dest.mkdir(parents=True, exist_ok=True)
+        stamp = len(list(dest.glob("labels_*.jsonl")))
+        for name, target in (("vlm_labels.jsonl", "labels"), ("vlm_log.json", "log")):
+            if (src / name).exists():
+                ext = Path(name).suffix
+                shutil.copy2(src / name, dest / f"{target}_{stamp:03d}{ext}")
+        print(f"labels and log saved in {dest} as run {stamp:03d}")
+        if kaggle.dataset_exists(ref):
+            kaggle.delete_dataset(ref)
+            print(f"deleted {ref}, so no clips stay on Kaggle")
+        return 0
+    clips = pd.read_parquet(args.clips)
+    clips = clips[[(args.clip_dir / f"{c}.mp4").exists() for c in clips["clip_id"]]]
+    if args.per_stratum:
+        clips = clips.groupby("stratum").head(args.per_stratum)
+    models = [VLMS[m.strip()] for m in str(args.models).split(",")]
+    paths = [args.clip_dir / f"{c}.mp4" for c in clips["clip_id"]]
+    videos.upload_clips(paths, _kaggle_user(), Path("data/raw/upload"))
+    print(f"uploaded {len(paths)} clips to {ref}, confirmed private")
+    values: dict[str, object] = {
+        "REPO": REPO,
+        "COMMIT": pushed_commit(),
+        "MODELS": models,
+        "CLIP_IDS": clips["clip_id"].tolist(),
+    }
+    _push(VLM_KERNEL, values, {"dataset_sources": [ref]})
     return 0
 
 

@@ -55,3 +55,27 @@ def stage_and_upload(batch: pd.DataFrame, user: str, work: Path, max_height: int
     finally:
         shutil.rmtree(folder, ignore_errors=True)
     return ref
+
+
+CLIPS_SLUG = "cornerman-clips"
+
+
+def upload_clips(clips: list[Path], user: str, work: Path) -> str:
+    """Upload silver-set clips as one private dataset; the staging copy is removed.
+
+    The local clips stay in data/gold/clips (gitignored). The dataset is deleted
+    by `cornerman gold-vlm import` once the labels are home.
+    """
+    ref = f"{user}/{CLIPS_SLUG}"
+    folder = work / CLIPS_SLUG
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    try:
+        for c in clips:
+            shutil.copy2(c, folder / c.name)
+        meta = {"title": CLIPS_SLUG, "id": ref, "licenses": [{"name": "unknown"}]}
+        (folder / kaggle.DATASET_METADATA).write_text(json.dumps(meta, indent=2))
+        kaggle.upload_dataset(folder, ref)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    return ref
