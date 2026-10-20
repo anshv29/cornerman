@@ -32,12 +32,14 @@ VLMS: dict[str, dict[str, object]] = {
     "2b": {"name": "Qwen/Qwen3-VL-2B-Instruct",
            "revision": "89644892e4d85e24eaac8bacfd4f463576704203"},
     "4b": {"name": "Qwen/Qwen3-VL-4B-Instruct",
-           "revision": "ebb281ec70b05090aa6165b016eac8ec08e71b17", "per_gpu": True},
+           "revision": "ebb281ec70b05090aa6165b016eac8ec08e71b17"},
     "8b": {"name": "Qwen/Qwen3-VL-8B-Instruct",
            "revision": "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b",
            "max_memory": {0: "8GiB", 1: "9GiB"}},
 }  # fmt: skip
-"""Pinned Qwen3-VL revisions (Apache 2.0), DECISIONS.md."""
+"""Pinned Qwen3-VL revisions (Apache 2.0), DECISIONS.md. Add "per_gpu": True only for
+a model whose activations fit one T4 too: one 4B copy per card ran out of memory on
+almost every clip (12 frames at 480p need 2.4 GiB more for vision attention)."""
 
 
 def pipeline_for(name: str) -> list[Stage]:
