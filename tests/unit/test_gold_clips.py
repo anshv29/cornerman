@@ -82,3 +82,18 @@ def test_sample_prefers_clips_with_both_fighters_boxed() -> None:
     )  # fmt: skip
     # Three clips: the three with both fighters boxed come first.
     assert sorted(sample(clips, 3)["both"]) == [0.8, 0.9, 1.0]
+
+
+def test_quotas_extend_a_smaller_sample() -> None:
+    rng = np.random.default_rng(1)
+    clips = pd.DataFrame(
+        {"fight_id": rng.choice(list("abcdef"), 900), "stratum": rng.choice(STRATA, 900),
+         "t0": rng.random(900), "both": rng.random(900)}
+    )  # fmt: skip
+    small = sample(clips, 0, quotas={s: 10 for s in STRATA})
+    big = sample(clips, 0, quotas={"apart": 10, "close": 40, "ground": 10, "merged": 40})
+    assert small["stratum"].value_counts().eq(10).all()
+    assert big["stratum"].value_counts().to_dict() == {
+        "close": 40, "merged": 40, "apart": 10, "ground": 10}  # fmt: skip
+    assert set(small["t0"]) <= set(big["t0"])
+    assert big.groupby("stratum")["rank"].max().to_dict()["close"] == 39

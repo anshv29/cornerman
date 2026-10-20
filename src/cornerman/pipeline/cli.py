@@ -37,9 +37,7 @@ VLMS: dict[str, dict[str, object]] = {
            "revision": "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b",
            "max_memory": {0: "8GiB", 1: "9GiB"}},
 }  # fmt: skip
-"""Pinned Qwen3-VL revisions (Apache 2.0), DECISIONS.md. Add "per_gpu": True only for
-a model whose activations fit one T4 too: one 4B copy per card ran out of memory on
-almost every clip (12 frames at 480p need 2.4 GiB more for vision attention)."""
+"""Pinned Qwen3-VL revisions (Apache 2.0), DECISIONS.md."""
 
 
 def pipeline_for(name: str) -> list[Stage]:
@@ -121,6 +119,11 @@ def main(argv: list[str] | None = None) -> int:
     p_gold.add_argument("--n", type=int, default=400)
     p_gold.add_argument("--clip-s", type=float, default=3.0)
     p_gold.add_argument("--seed", type=int, default=0)
+    p_gold.add_argument(
+        "--quota",
+        default="",
+        help="clips per stratum, e.g. apart=100,close=400,ground=100,merged=400 (overrides --n)",
+    )
     p_gold.add_argument("--out", type=Path, default=Path("data/gold/clips.parquet"))
     p_cut = sub.add_parser("gold-cut", help="cut the sampled clips (downloads each video once)")
     p_cut.add_argument("--clips", type=Path, default=Path("data/gold/clips.parquet"))
@@ -135,6 +138,9 @@ def main(argv: list[str] | None = None) -> int:
     p_vpush.add_argument("--models", default="4b,8b", help="comma list of " + ",".join(VLMS))
     p_vpush.add_argument("--per-stratum", type=int, default=0, help="0 = every clip")
     p_vpush.add_argument("--prompts", default="", help="comma list; default every prompt")
+    p_vpush.add_argument(
+        "--hours", type=float, default=11.0, help="start no new clip after this (session cap 12)"
+    )
     vlm.add_parser("import", help="pull the labels and delete the clips dataset")
     sub.add_parser("gold-rules", help="labeller A on the sampled clips")
     p_silver = sub.add_parser("gold-silver", help="combine labellers into the silver set")
@@ -153,7 +159,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{int(q['flagged'].sum())} of {len(q)} fights flagged")
         return 0
     if args.command == "gold-clips":
-        return _gold_clips(args.derived, args.n, args.clip_s, args.seed, args.out)
+        quotas = (
+            {k: int(v) for k, v in (q.split("=") for q in args.quota.split(","))}
+            if args.quota
+            else None
+        )
+        return _gold_clips(args.derived, args.n, args.clip_s, args.seed, args.out, quotas)
     if args.command == "gold-cut":
         return _gold_cut(args.clips, args.config, args.fights_csv, args.out)
     if args.command == "gold-rules":
@@ -318,14 +329,21 @@ def _identity_probe(fights_file: Path, derived: Path, out: Path) -> int:
     return 0
 
 
-def _gold_clips(derived: Path, n: int, clip_s: float, seed: int, out: Path) -> int:
+def _gold_clips(
+    derived: Path,
+    n: int,
+    clip_s: float,
+    seed: int,
+    out: Path,
+    quotas: dict[str, int] | None = None,
+) -> int:
     """Clips from fights whose identity isn't flagged, stratified by a position proxy."""
     from cornerman.contracts.perception import usable_fights
     from cornerman.gold.clips import fight_clips, sample
 
     fights = usable_fights(derived)
     clips = pd.concat([fight_clips(derived / f, clip_s) for f in fights], ignore_index=True)
-    chosen = sample(clips, n, seed)
+    chosen = sample(clips, n, seed, quotas)
     out.parent.mkdir(parents=True, exist_ok=True)
     chosen.to_parquet(out, index=False)
     print(f"{len(clips)} candidate clips in {len(fights)} usable fights")
@@ -422,6 +440,8 @@ def _gold_vlm(args: argparse.Namespace) -> int:
         models = [
             {**m, "prompts": [p.strip() for p in str(args.prompts).split(",")]} for m in models
         ]
+    if "rank" in clips:  # work through the strata evenly, so a partial run is balanced
+        clips = clips.sort_values(["rank", "stratum"])
     paths = [args.clip_dir / f"{c}.mp4" for c in clips["clip_id"]]
     videos.upload_clips(paths, _kaggle_user(), Path("data/raw/upload"))
     print(f"uploaded {len(paths)} clips to {ref}, confirmed private")
@@ -430,6 +450,7 @@ def _gold_vlm(args: argparse.Namespace) -> int:
         "COMMIT": pushed_commit(),
         "MODELS": models,
         "CLIP_IDS": clips["clip_id"].tolist(),
+        "TIME_BUDGET_S": float(args.hours) * 3600,
     }
     _push(VLM_KERNEL, values, {"dataset_sources": [ref]})
     return 0
