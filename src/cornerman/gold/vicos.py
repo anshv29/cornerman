@@ -84,3 +84,62 @@ def load(path: Path = FOLDER / "annotations.json") -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def _box(kp: np.ndarray) -> tuple[float, float, float, float]:
+    ok = kp[:, 2] > 0.3
+    pts = kp[ok, :2] if ok.any() else kp[:, :2]
+    return (
+        float(pts[:, 0].min()),
+        float(pts[:, 1].min()),
+        float(pts[:, 0].max()),
+        float(pts[:, 1].max()),
+    )
+
+
+def rules_on_frames(frames: pd.DataFrame) -> pd.DataFrame:
+    """Labeller A on every frame with both poses; athlete 1 plays red, athlete 2 blue.
+
+    Boxes are the keypoint extents (ViCoS has no detector boxes). Adds `rules`,
+    `level` (standing or ground, from ViCoS) and `truth_top` (red, blue or None).
+    """
+    from cornerman.gold.rules import frame_label
+
+    both = frames[frames["pose1"].notna() & frames["pose2"].notna()].copy()
+    labels: list[str | None] = []
+    for p1, p2 in zip(both["pose1"], both["pose2"], strict=True):
+        a, b = _box(p1), _box(p2)
+        h = ((a[3] - a[1]) + (b[3] - b[1])) / 2
+        gap = float(np.hypot((a[0] + a[2] - b[0] - b[2]) / 2, (a[1] + a[3] - b[1] - b[3]) / 2))
+        iw = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+        ih = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+        union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - iw * ih
+        labels.append(frame_label(p1, p2, gap / max(h, 1.0), iw * ih / max(union, 1.0)))
+    both["rules"] = labels
+    both["level"] = np.where(both["state1"] == State.STANDING_NEUTRAL.value, "standing", "ground")
+    top: list[str | None] = [
+        "red" if s1 == State.GROUND_TOP.value else "blue" if s2 == State.GROUND_TOP.value else None
+        for s1, s2 in zip(both["state1"], both["state2"], strict=True)
+    ]
+    both["truth_top"] = top
+    return both
+
+
+def rules_report(scored: pd.DataFrame) -> dict[str, float]:
+    """Level accuracy (standing vs ground) and, on frames with someone on top, how often
+    the rules name the right fighter, the wrong one, or nobody."""
+    has = scored[scored["rules"].notna()]
+    said_ground = has["rules"].str.startswith("ground")
+    level_ok = said_ground == (has["level"] == "ground")
+    top = has[has["truth_top"].notna() & said_ground]
+    said_top = top["rules"].str.extract(r"ground-(red|blue)-top")[0]
+    return {
+        "frames": float(len(scored)),
+        "labelled": float(len(has)) / max(len(scored), 1),
+        "level_accuracy": float(level_ok.mean()),
+        "standing_called_ground": float(said_ground[has["level"] == "standing"].mean()),
+        "ground_called_standing": float((~said_ground)[has["level"] == "ground"].mean()),
+        "top_right": float((said_top == top["truth_top"]).mean()),
+        "top_wrong": float((said_top.notna() & (said_top != top["truth_top"])).mean()),
+        "top_even": float(said_top.isna().mean()),
+    }

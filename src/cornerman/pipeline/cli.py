@@ -132,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     p_vpush.add_argument("--models", default="4b,8b", help="comma list of " + ",".join(VLMS))
     p_vpush.add_argument("--per-stratum", type=int, default=0, help="0 = every clip")
     vlm.add_parser("import", help="pull the labels and delete the clips dataset")
+    sub.add_parser("gold-vicos", help="measure the rules labeller on ViCoS jiu-jitsu (local)")
     args = parser.parse_args(argv)
 
     if args.command == "identity-probe":
@@ -148,6 +149,12 @@ def main(argv: list[str] | None = None) -> int:
         return _gold_clips(args.derived, args.n, args.clip_s, args.seed, args.out)
     if args.command == "gold-cut":
         return _gold_cut(args.clips, args.config, args.fights_csv, args.out)
+    if args.command == "gold-vicos":
+        from cornerman.gold.vicos import load, rules_on_frames, rules_report
+
+        for k, v in rules_report(rules_on_frames(load())).items():
+            print(f"{k:<24} {v:.3f}")
+        return 0
     if args.command == "gold-vlm":
         return _gold_vlm(args)
     if args.command == "kaggle":
