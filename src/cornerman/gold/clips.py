@@ -189,4 +189,5 @@ def fight_clips(fight_dir: Path, clip_s: float = 3.0) -> pd.DataFrame:
         pd.read_parquet(fight_dir / "pose" / "poses.parquet"),
         clip_s,
     )
-    return w.assign(fight_id=fight_dir.name)
+    w = w.assign(fight_id=fight_dir.name)
+    return w.assign(clip_id=[f"{fight_dir.name}_{round(t * 10):06d}" for t in w["t0"]])

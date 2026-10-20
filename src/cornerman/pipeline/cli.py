@@ -109,6 +109,11 @@ def main(argv: list[str] | None = None) -> int:
     p_gold.add_argument("--clip-s", type=float, default=3.0)
     p_gold.add_argument("--seed", type=int, default=0)
     p_gold.add_argument("--out", type=Path, default=Path("data/gold/clips.parquet"))
+    p_cut = sub.add_parser("gold-cut", help="cut the sampled clips (downloads each video once)")
+    p_cut.add_argument("--clips", type=Path, default=Path("data/gold/clips.parquet"))
+    p_cut.add_argument("--config", type=Path, default=Path("configs/kaggle_real.yaml"))
+    p_cut.add_argument("--fights-csv", type=Path, default=Path("data/fights.csv"))
+    p_cut.add_argument("--out", type=Path, default=Path("data/gold/clips"))
     args = parser.parse_args(argv)
 
     if args.command == "identity-probe":
@@ -123,6 +128,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "gold-clips":
         return _gold_clips(args.derived, args.n, args.clip_s, args.seed, args.out)
+    if args.command == "gold-cut":
+        return _gold_cut(args.clips, args.config, args.fights_csv, args.out)
     if args.command == "kaggle":
         return _kaggle(args)
     if args.command == "collect":
@@ -275,6 +282,28 @@ def _gold_clips(derived: Path, n: int, clip_s: float, seed: int, out: Path) -> i
     )
     print(counts.to_string())
     print(f"{len(chosen)} clips from {chosen['fight_id'].nunique()} fights -> {out}")
+    return 0
+
+
+def _gold_cut(clips_path: Path, config: Path, fights_csv: Path, out: Path) -> int:
+    """Clips with the corners drawn in, local only (data/ is gitignored)."""
+    from cornerman.gold.cut import cut_all
+
+    settings = load_settings(config)
+    clips = pd.read_parquet(clips_path)
+    fights = pd.read_csv(fights_csv)
+    urls = dict(zip(fights["fight_id"].astype(str), fights["url"].astype(str), strict=True))
+    report = cut_all(
+        clips,
+        urls,
+        settings.paths.derived,
+        out,
+        Path("data/raw/gold"),
+        settings.perception.max_height,
+        settings.perception.fps,
+    )
+    print(report["status"].str.split(":").str[0].value_counts().to_string())
+    print(f"{len(list(out.glob('*.mp4')))} of {len(clips)} clips in {out}")
     return 0
 
 
