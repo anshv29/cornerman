@@ -157,19 +157,24 @@ def strata(clips: pd.DataFrame) -> np.ndarray:
 def sample(clips: pd.DataFrame, n: int, seed: int = 0) -> pd.DataFrame:
     """About n clips, equal shares per stratum, spread evenly over fights.
 
-    Within a stratum, each fight's clips are shuffled and taken in turns (every
-    fight's first clip, then every fight's second...), so no fight dominates. A
-    stratum short of its share leaves the rest to the others.
+    Within a stratum, clips where both fighters are boxed separately for most of the
+    clip come first, since only those can be checked by the rules labeller (this
+    matters for ground, where most clips have one box around both fighters, and
+    biases the silver ground set towards untangled positions). Then each fight's
+    clips are shuffled and taken in turns (every fight's first clip, then every
+    fight's second...), so no fight dominates. A stratum short of its share leaves
+    the rest to the others.
     """
     rng = np.random.default_rng(seed)
     c = clips.assign(_r=rng.random(len(clips)))
     c["_turn"] = c.sort_values("_r").groupby(["stratum", "fight_id"]).cumcount()
-    c = c.sort_values(["_turn", "_r"])
+    c["_merged"] = c["both"] < MERGED_BOTH if "both" in c else False
+    c = c.sort_values(["_merged", "_turn", "_r"])
     share = n // len(STRATA)
     picked = [c[c["stratum"] == s].head(share) for s in STRATA]
     taken = pd.concat(picked)
     rest = c.drop(taken.index).head(max(0, n - len(taken)))
-    out = pd.concat([taken, rest]).drop(columns=["_r", "_turn"])
+    out = pd.concat([taken, rest]).drop(columns=["_r", "_turn", "_merged"])
     return out.sort_values(["fight_id", "t0"]).reset_index(drop=True)
 
 

@@ -72,3 +72,12 @@ def test_sample_balances_strata_and_fights() -> None:
     # Fight a has 80% of the clips but gets no more than its turn in each stratum.
     assert s["fight_id"].value_counts()["a"] < 0.6 * len(s)
     assert sample(clips, 80).equals(s)  # same seed, same sample
+
+
+def test_sample_prefers_clips_with_both_fighters_boxed() -> None:
+    clips = pd.DataFrame(
+        {"fight_id": ["a"] * 8, "stratum": ["ground"] * 8, "t0": np.arange(8.0),
+         "both": [0.0, 0.1, 0.9, 0.2, 1.0, 0.0, 0.8, 0.3]}
+    )  # fmt: skip
+    # Three clips: the three with both fighters boxed come first.
+    assert sorted(sample(clips, 3)["both"]) == [0.8, 0.9, 1.0]
