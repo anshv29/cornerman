@@ -25,6 +25,8 @@ class VlmSpec:
     sample_fps: float = 4.0
     """Frames per second given to the model (clips are 10 fps)."""
     max_new_tokens: int = 160
+    prompts: tuple[str, ...] = tuple(PROMPTS)
+    """Which prompts to ask (a rerun can ask only the one that changed)."""
     max_memory: dict[int, str] | None = None
     """Per-GPU cap for weights when spread over GPUs, e.g. {0: "7GiB", 1: "14GiB"}:
     GPU 0 also holds the vision encoder's activations for a whole clip."""
@@ -108,7 +110,7 @@ def label_clips(
     rows: list[dict[str, object]] = []
     for path in clips:
         frames, fps = read_clip(path, spec.sample_fps)
-        for name in PROMPTS:
+        for name in spec.prompts:
             t0 = time.time()
             try:
                 text = ask(model, processor, frames, fps, prompt(name), spec.max_new_tokens)

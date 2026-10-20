@@ -134,6 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     p_vpush.add_argument("--clip-dir", type=Path, default=Path("data/gold/clips"))
     p_vpush.add_argument("--models", default="4b,8b", help="comma list of " + ",".join(VLMS))
     p_vpush.add_argument("--per-stratum", type=int, default=0, help="0 = every clip")
+    p_vpush.add_argument("--prompts", default="", help="comma list; default every prompt")
     vlm.add_parser("import", help="pull the labels and delete the clips dataset")
     sub.add_parser("gold-rules", help="labeller A on the sampled clips")
     p_silver = sub.add_parser("gold-silver", help="combine labellers into the silver set")
@@ -417,6 +418,10 @@ def _gold_vlm(args: argparse.Namespace) -> int:
     if args.per_stratum:
         clips = clips.groupby("stratum").head(args.per_stratum)
     models = [VLMS[m.strip()] for m in str(args.models).split(",")]
+    if args.prompts:
+        models = [
+            {**m, "prompts": [p.strip() for p in str(args.prompts).split(",")]} for m in models
+        ]
     paths = [args.clip_dir / f"{c}.mp4" for c in clips["clip_id"]]
     videos.upload_clips(paths, _kaggle_user(), Path("data/raw/upload"))
     print(f"uploaded {len(paths)} clips to {ref}, confirmed private")

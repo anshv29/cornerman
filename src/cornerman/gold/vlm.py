@@ -7,7 +7,8 @@ and the rules labeller agree:
 
 - direct: pick each fighter's state from the taxonomy, given short definitions;
 - questions: answer plain questions about the clip (standing or ground, who is
-  on top, clinched and who controls it, pinned on the fence, hurt). The states
+  on top, clinched and who controls it, who is pushing whom into the fence,
+  hurt). The states
   are worked out from the answers here, in code.
 
 The two prompts reach a state by different routes, so agreement between them
@@ -79,8 +80,8 @@ PROMPTS: dict[str, str] = {
     "head, neck, arms or body)? yes / no\n"
     "5. clinch_control: if clinched, who has the better grips or position? red / "
     "blue / even\n"
-    "6. fence: if standing, is one fighter pinned against the fence by the other? "
-    "red / blue / neither (name the fighter who is pinned)\n"
+    "6. fence: if standing, is one fighter pushing or holding the other against the "
+    "fence? Name the fighter who is doing the pushing: red / blue / neither\n"
     "7. hurt: is one fighter visibly hurt (stumbling, buckled legs, covering up "
     "after being hit)? red / blue / neither\n"
     "Answer with JSON only, in this form:\n"
@@ -156,11 +157,12 @@ def parse_questions(text: str) -> Labels | None:
         else:
             s["red"] = s["blue"] = State.GROUND_SCRAMBLING
     elif a.get("level") == "standing":
-        control, pinned, hurt = a.get("clinch_control"), a.get("fence"), a.get("hurt")
+        control, pusher, hurt = a.get("clinch_control"), a.get("fence"), a.get("hurt")
         # The fence comes first: a clinch against the fence is cage pressure.
-        if pinned in ("red", "blue"):
+        if pusher in ("red", "blue"):
+            pinned = _other(pusher)
             s[pinned] = State.STANDING_CAGE_PRESSURED
-            s[_other(pinned)] = (
+            s[pusher] = (
                 State.STANDING_OPPONENT_HURT if hurt == pinned else State.STANDING_CAGE_PRESSURING
             )
         elif a.get("clinch") == "yes":
