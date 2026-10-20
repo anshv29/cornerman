@@ -46,7 +46,8 @@ def test_clip_label_needs_a_clear_majority() -> None:
 def test_agreement_with_fine_states() -> None:
     assert agrees(State.GROUND_TOP, State.GROUND_BOTTOM, "ground-red-top")
     assert not agrees(State.GROUND_TOP, State.GROUND_BOTTOM, "ground-blue-top")
-    assert agrees(State.STANDING_CAGE_PRESSURED, State.STANDING_CAGE_PRESSURING, "clinch")
+    assert agrees(State.STANDING_CAGE_PRESSURED, State.STANDING_CAGE_PRESSURING, "standing")
+    assert not agrees(State.STANDING_CAGE_PRESSURED, State.STANDING_CAGE_PRESSURING, "clinch")
     assert agrees(State.GROUND_SCRAMBLING, State.GROUND_SCRAMBLING, "ground-even")
     assert not agrees(State.STANDING_NEUTRAL, State.STANDING_NEUTRAL, "clinch")
     assert not agrees(State.STANDING_NEUTRAL, State.STANDING_NEUTRAL, None)

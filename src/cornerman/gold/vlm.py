@@ -7,9 +7,14 @@ and the rules labeller agree:
 
 - direct: pick each fighter's state from the taxonomy, given short definitions;
 - questions: answer plain questions about the clip (standing or ground, who is
-  on top, clinched and who controls it, who is pushing whom into the fence,
-  hurt). The states
-  are worked out from the answers here, in code.
+  on top, clinched and who controls it, who is backing whom onto the fence,
+  hurt). The states are worked out from the answers here, in code.
+
+Taxonomy readings (Ansh, 2026-10-20): a clinch is a clinch wherever it happens,
+against the fence too; cage pressure is only when the fighters are not locked
+up, at striking range, with one fighter's back near the fence. Fence position is
+measured separately from geometry later. A fighter standing over a downed
+opponent is ground-top.
 
 The two prompts reach a state by different routes, so agreement between them
 means more than asking the same thing twice. Both may answer that the clip isn't
@@ -39,17 +44,18 @@ _CLIP = (
 )
 
 STATE_DEFINITIONS = {
-    State.STANDING_NEUTRAL: "on the feet, not clinched, not pinned on the fence",
-    State.STANDING_CAGE_PRESSURING: "on the feet, pushing or holding the opponent against "
-    "the fence (including clinching them against the fence)",
-    State.STANDING_CAGE_PRESSURED: "on the feet, pinned against the fence by the opponent "
-    "(including being clinched against the fence)",
+    State.STANDING_NEUTRAL: "on the feet, not clinched, and neither fighter has their "
+    "back to the fence",
+    State.STANDING_CAGE_PRESSURING: "on the feet and not clinched, at striking range, "
+    "with the opponent backed up so their back is near the fence",
+    State.STANDING_CAGE_PRESSURED: "on the feet and not clinched, at striking range, "
+    "backed up with their own back near the fence",
     State.STANDING_OPPONENT_HURT: "on the feet, and the opponent is visibly hurt "
     "(stumbling, buckled legs, covering up after being hit)",
-    State.CLINCH_CONTROLLING: "standing, upper bodies locked together away from the "
-    "fence, and this fighter has the better grips or position",
-    State.CLINCH_CONTROLLED: "standing, upper bodies locked together away from the "
-    "fence, and the opponent has the better grips or position",
+    State.CLINCH_CONTROLLING: "standing, upper bodies locked together (in open space "
+    "or against the fence), and this fighter has the better grips or position",
+    State.CLINCH_CONTROLLED: "standing, upper bodies locked together (in open space "
+    "or against the fence), and the opponent has the better grips or position",
     State.GROUND_TOP: "on top of a downed opponent: inside their guard, side "
     "control, mount, on their back, or standing over an opponent who is down on the mat",
     State.GROUND_BOTTOM: "down on the mat with the opponent on top or standing over "
@@ -80,8 +86,9 @@ PROMPTS: dict[str, str] = {
     "head, neck, arms or body)? yes / no\n"
     "5. clinch_control: if clinched, who has the better grips or position? red / "
     "blue / even\n"
-    "6. fence: if standing, is one fighter pushing or holding the other against the "
-    "fence? Name the fighter who is doing the pushing: red / blue / neither\n"
+    "6. fence: if standing and not clinched, is one fighter backing the other up so "
+    "that the other's back is near the fence? Name the fighter who is doing the "
+    "backing up: red / blue / neither\n"
     "7. hurt: is one fighter visibly hurt (stumbling, buckled legs, covering up "
     "after being hit)? red / blue / neither\n"
     "Answer with JSON only, in this form:\n"
@@ -139,10 +146,9 @@ def _other(c: str) -> Corner:
 def parse_questions(text: str) -> Labels | None:
     """Labels worked out from a 'questions' answer, or None if it can't be decided.
 
-    A fighter pinned on the fence makes it cage pressure even in a clinch (the
-    clinch states are for clinches away from the fence). An even clinch has no
-    state in the taxonomy (one fighter must be controlling), so it gives None
-    rather than a guess.
+    A clinch is a clinch wherever it happens; cage pressure only applies when the
+    fighters are not clinched. An even clinch has no state in the taxonomy (one
+    fighter must be controlling), so it gives None rather than a guess.
     """
     a = extract_json(text)
     if a is None:
@@ -158,17 +164,17 @@ def parse_questions(text: str) -> Labels | None:
             s["red"] = s["blue"] = State.GROUND_SCRAMBLING
     elif a.get("level") == "standing":
         control, pusher, hurt = a.get("clinch_control"), a.get("fence"), a.get("hurt")
-        # The fence comes first: a clinch against the fence is cage pressure.
-        if pusher in ("red", "blue"):
+        # The clinch comes first: a clinch against the fence is still a clinch.
+        if a.get("clinch") == "yes":
+            if control not in ("red", "blue"):
+                return None
+            s[control], s[_other(control)] = State.CLINCH_CONTROLLING, State.CLINCH_CONTROLLED
+        elif pusher in ("red", "blue"):
             pinned = _other(pusher)
             s[pinned] = State.STANDING_CAGE_PRESSURED
             s[pusher] = (
                 State.STANDING_OPPONENT_HURT if hurt == pinned else State.STANDING_CAGE_PRESSURING
             )
-        elif a.get("clinch") == "yes":
-            if control not in ("red", "blue"):
-                return None
-            s[control], s[_other(control)] = State.CLINCH_CONTROLLING, State.CLINCH_CONTROLLED
         elif hurt in ("red", "blue"):
             s[hurt], s[_other(hurt)] = State.STANDING_NEUTRAL, State.STANDING_OPPONENT_HURT
         else:

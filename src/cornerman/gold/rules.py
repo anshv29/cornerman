@@ -111,9 +111,9 @@ def clip_label(frame_labels: Sequence[str | None], share: float = 0.6) -> str | 
 def coarse(red: State, blue: State) -> set[str]:
     """Coarse labels the rules may give for a fine (red, blue) state pair.
 
-    Cage pressure can be at arm's length or chest to chest, so it agrees with
-    standing or clinch. Scrambles agree with any ground label, since a scramble has
-    moments with someone briefly on top.
+    Cage pressure is at striking range (a clinch on the fence is a clinch), so
+    it agrees with standing only. Scrambles agree with any ground label, since a
+    scramble has moments with someone briefly on top.
     """
     if red == State.GROUND_TOP:
         return {"ground-red-top"}
@@ -123,8 +123,6 @@ def coarse(red: State, blue: State) -> set[str]:
         return {"ground-even", "ground-red-top", "ground-blue-top"}
     if red in (State.CLINCH_CONTROLLING, State.CLINCH_CONTROLLED):
         return {"clinch"}
-    if {red, blue} & {State.STANDING_CAGE_PRESSURING, State.STANDING_CAGE_PRESSURED}:
-        return {"standing", "clinch"}
     return {"standing"}
 
 

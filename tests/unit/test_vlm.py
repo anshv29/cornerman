@@ -38,8 +38,8 @@ def test_parse_direct() -> None:
         ({"hurt": "blue"}, "standing-opponent-hurt", "standing-neutral"),
         (
             {"clinch": "yes", "clinch_control": "blue", "fence": "blue"},
-            "standing-cage-pressured",
-            "standing-cage-pressuring",
+            "clinch-controlled",
+            "clinch-controlling",
         ),
     ],
 )
