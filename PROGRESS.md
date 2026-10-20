@@ -2,9 +2,7 @@
 
 ## Needs Ansh
 
-1. **Identity flag threshold (decides which fights later models use).** The held-out test (24 fights) gave 18 right. At the frozen threshold 0.4, unflagged fights are 15 of 19 right and the flag caught only 2 of the 6 wrong ones. Over all 54 judged fights, 0.5 would keep 36 fights with 32 right (89%) and catch 11 of 15 wrong, but 0.5 was picked after the test, so that number is optimistic. Options: keep 0.4 (more fights, about 1 in 5 wrong), or move to 0.5 (two thirds of fights, about 1 in 10 wrong). To change it: set `identity_flag_below` in the config and run `uv run cornerman identity-quality` (no rerun of anything else). Details in DECISIONS.md, 2026-10-19.
-2. **ViCoS jiu-jitsu dataset licence (CC BY-NC-SA 4.0, non-commercial).** We'd use it only to evaluate the ground-state classifier, never redistribute it. Say yes or no; until then it isn't downloaded. DECISIONS.md, Phase 2 plan.
-3. **A free DVC remote (not blocking).** Ansh said on 2026-10-17 this can wait. Recommended: DagsHub (free, no card). Sign up at https://dagshub.com with GitHub, connect the `anshv29/cornerman` repo, then share the DVC remote URL and an access token with the agent, for example by putting the token in a gitignored `.env` file. Until then the DVC cache lives only on this laptop.
+1. **A free DVC remote (not blocking).** Ansh said on 2026-10-17 this can wait. Recommended: DagsHub (free, no card). Sign up at https://dagshub.com with GitHub, connect the `anshv29/cornerman` repo, then share the DVC remote URL and an access token with the agent, for example by putting the token in a gitignored `.env` file. Until then the DVC cache lives only on this laptop.
 
 ## Kaggle setup (done 2026-10-17)
 - Account `anshvaishnav29`, phone verified, so notebooks get GPU and internet.
@@ -14,7 +12,7 @@
 
 ## Current spend
 $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs.md`.
-Free Kaggle GPU used so far: about 15 hours in total, about 3.5 of them for the last 24 fights (2026-10-19).
+Free Kaggle GPU used so far: about 23 hours in total. On 2026-10-19 and 10-20: about 3.5 h for the last 24 fights, about 1.7 h of VLM pilots, 0.6 h for a failed full run (out of memory), 3.5 h for the full VLM run.
 
 ## Done
 
@@ -55,15 +53,28 @@ Free Kaggle GPU used so far: about 15 hours in total, about 3.5 of them for the 
 - All 74 IMMAF fights processed (the last 24 on free Kaggle quota, about 3.5 h).
 - Identity round 3, developed on the 30 already-seen fights: roles per crop (Viterbi along each tracklet), two-pass fighting time, and a per-fight confidence score from four label-free checks. Dropped after trying: fighting-time-only grouping with ground fill-in (worse), and a behavioural referee detector (its labels were 35 to 50% precise). Dev: 21 of 30.
 - Held-out test on the 24 new fights, method fixed and committed first: 18 of 24 right (75%), no red/blue swaps. Flag at 0.4: unflagged 15 of 19 right, 2 of 6 wrong fights caught. Confidence AUC 0.83. Verdicts in `experiments/identity_v3_test_verdicts.csv`.
-- The method is in the pipeline: a `crop_features` stage (DINOv2-small over the body mask) and the `identity` stage writing `roles.parquet` (role per box), `quality.json` (confidence, flag) and `fighting.parquet`. Matches the frozen experiment exactly on all 33,492 test crops. `cornerman identity-quality` lists flags (17 of 74 at 0.4); `usable_fights` gives the rest.
-- Phase 2 started: plan and licence checks (DECISIONS.md), label-free checks (`eval/label_free.py`), and the silver-set clip sampler (`cornerman gold-clips`: 400 clips of 3 s from the 57 usable fights, 100 per position stratum: apart, close, ground, merged).
+- The method is in the pipeline: a `crop_features` stage (DINOv2-small over the body mask) and the `identity` stage writing `roles.parquet` (role per box), `quality.json` (confidence, flag) and `fighting.parquet`. Matches the frozen experiment exactly on all 33,492 test crops. `cornerman identity-quality` lists flags; `usable_fights` gives the rest.
+- Ansh's calls (2026-10-19): flag threshold 0.5 (chosen after the test; re-validate on the next fresh fights). On the shipped classifier it flags 35 of 74 fights, 39 usable (the 0.5 estimate had mixed two classifier versions; corrected in DECISIONS.md). Flagged fights only for population-level numbers (`population_fights`), never per fighter. ViCoS yes, for evaluation only.
+- Phase 2 started: plan and licence checks (DECISIONS.md), label-free checks (`eval/label_free.py`).
 - Fixes: Kaggle downloads retry when the connection drops; import no longer re-copies an older batch or wipes stages run on the laptop.
 - Docs: LEARNING.md section 20.
+
+### Phase 2, silver set first build (2026-10-19 to 10-20)
+- Clips (`gold-clips`, `gold-cut`): 400 clips of 3 s from the 39 usable fights, 100 per stratum (apart, close, ground, merged), clips with both fighters boxed first. Cut on the laptop from a re-download checked against the processed video, red corner in a red box and blue in a blue box, 10 fps, 480 px. Local only; on Kaggle only as a private dataset deleted after each job.
+- ViCoS jiu-jitsu (`gold/vicos.py`): annotations only (keypoints and hand-labelled positions, pinned by hash, under `data/external/`, never committed), mapped to our ground states after checking from the keypoints which athlete each label names.
+- Labeller A, rules (`gold/rules.py`, `gold-rules`, `gold-vicos`): coarse labels. On ViCoS, with thresholds fixed first: standing versus ground 97%; who is on top 82% right, 2% wrong, 16% unsure.
+- Labeller B, VLM (`gold/vlm.py`, `gold/vlm_run.py`, `kaggle/vlm`, `gold-vlm push|import`): Qwen3-VL-4B chosen over 8B after three pilots (8B ran out of memory, was 2.4 times slower and no more consistent). Two prompts; impossible or undecidable answers dropped.
+- Silver combiner (`gold/silver.py`, `gold-silver`). Full run with both prompts: 129 silver clips of 400, almost all standing-neutral (115) plus 14 ground; none for clinch or cage pressure, because the questions prompt named the wrong fighter on the fence (checked on the footage). Ansh's rulings (2026-10-20): a clinch against the fence is a clinch; cage pressure only at striking range with a back near the fence; standing over a downed opponent is ground-top. Prompts and rules changed to match, so the old answers are void.
+- Oversampled sample: 1,000 clips (apart 100, ground 100, close 400, merged 400), the first 400 unchanged. The VLM job now writes answers as they come, works through strata evenly and stops starting clips after 11 h, so running out of the weekly quota loses nothing.
+- Docs: LEARNING.md section 21, DECISIONS.md silver-set entry.
 
 ## Shaky or worth a second look
 - **Top perception issue for Phase 3: clinch box-merging.** In clinches, against the fence and on the ground, the detector often draws one box around both fighters, so both fighters are boxed in only 67 to 69% of live frames on the pilot. Everything downstream (identity, pose, state) inherits it. First thing to try: the RF-DETR segmentation variant (Apache 2.0, same family as our detector), whose per-person masks separate tangled bodies better than boxes. Measure it against the Phase 2 gold set, split by state (standing, clinch, ground).
 - **Identity is good enough to start, not solved.** 75% of held-out fights right; the failures are ground mixing and the other fighter leaking into a corner through clinches. The confidence score ranks fights well but its threshold is soft (Needs Ansh, item 1). Clinch box-merging (above) is the shared root cause.
-- **Clip strata are a rough proxy.** "ground" leans on torso angle and wide boxes and "merged" also catches close-ups of one fighter. They only spread the sample; the VLM labels will show how well they line up.
+- **Clip strata are a rough proxy.** "ground" leans on torso angle and wide boxes and "merged" also catches close-ups of one fighter. They only spread the sample.
+- **The silver set leans easy.** The rules need both fighters boxed separately, so tangled clinches and pins rarely become silver. Numbers measured on it must say "silver" and be split by stratum.
+- **The VLM's clinch-control answers are unreliable.** In the pilot the two prompts often named opposite fighters as controlling. Silver drops those clips, so clinch-controlling/controlled may stay thin.
+- **Kaggle CLI quirks:** `kaggle datasets create` creates the dataset but sometimes fails to parse the reply ("Expecting value"); rerunning the push works because it then adds a version. Once, a kernel push reported success but Kaggle kept the old version, so the "complete" status belonged to the previous run. After a push, check that the status is QUEUED or RUNNING.
 - **Cage mask misses**: a person outside the cage but close to the camera (a cornerman in a cageside shot) overlaps the canvas in the image and is kept; in one fight, cageside cameras shooting through the fence let several officials through. A white or grey canvas (other promotions) falls back to plain colour distance, untested.
 - **Fighting filter** is tuned on 2 fights (threshold 0.2 box heights per second gives 9.3 and 9.5 minutes). It should be checked on the 50 against each fight's round count, once results are scraped.
 - **Throughput:** about 1.37 s of wall time per second of video per GPU; two GPUs run in parallel. Ansh's call: enough for the 74 IMMAF fights; no more speed work for now.
@@ -73,10 +84,13 @@ Free Kaggle GPU used so far: about 15 hours in total, about 3.5 of them for the 
 - The first `pre-commit` run on a new machine downloads Go to build gitleaks, which takes a minute or two.
 
 ## Next
-1. Ansh's call on the flag threshold, then rerun `cornerman gold-clips` if it changes.
-2. VLM check on Kaggle (free): pin Qwen3-VL 4B or 8B (InternVL3 as the fallback), cut the 400 clips (the videos need downloading and uploading as a private dataset again, then deleting), measure memory, clips per minute and agreement between two prompts on a few dozen clips before labelling all of them.
-3. The rules labeller (labeller A) over pose and box features, so the silver set can require three-way agreement.
+1. The VLM run on all 1,000 clips with both prompts (pushed 2026-10-20; about 8.7 h, which may not fit this week's remaining free quota; anything left is finished after the weekly reset, with `--per-stratum` or by excluding clips already labelled). Then `gold-silver`, and a by-eye spot check of silver clips per state.
+2. Report silver coverage and spot-check precision per state, not only overall (clinch and ground are the thin ones).
+3. Phase 3 can then start: per-state accuracy of the rules labeller against silver, and Dawid-Skene over labellers A and B.
 4. MLflow comes later, before the first real model fit (Phase 4).
+
+## Later (noted 2026-10-20)
+- **Identity confidence per segment, not per fight.** Flagging whole fights drops half the data (35 of 74). Most flagged fights are wrong only in parts (a ground scramble, a post-fight shot), so a confidence per segment (per shot, or per minute of fighting time) would let the clean parts of flagged fights be used. The four checks can be computed on any span of frames; the threshold would need its own check.
 
 ## Later (noted 2026-10-17)
 - **More amateur sources before Tier 2.** Only 18 of 125 fighters have 2+ fights in the IMMAF data. Per-fighter models need depth, so Tier 2 (scaling to 1000+ fights) must add more public amateur sources with repeat fighters. Same rules apply: adult bouts only, no pro promotion broadcasts.
