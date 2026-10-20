@@ -6,6 +6,7 @@ decoding backend is needed on Kaggle.
 """
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -102,13 +103,24 @@ def ask(model: Any, processor: Any, frames: np.ndarray, fps: float, text: str, m
 
 
 def label_clips(
-    spec: VlmSpec, clips: list[Path], device_map: str | dict[str, int] = "auto"
+    spec: VlmSpec,
+    clips: list[Path],
+    device_map: str | dict[str, int] = "auto",
+    on_row: Callable[[dict[str, object]], None] | None = None,
+    deadline: float | None = None,
 ) -> list[dict[str, object]]:
-    """Both prompts on every clip: one row per (clip, prompt) with the raw answer,
-    the parsed labels and the seconds taken."""
+    """The spec's prompts on every clip: one row per (clip, prompt) with the raw
+    answer, the parsed labels and the seconds taken.
+
+    `on_row` gets each row as soon as it exists, so a job that is stopped (a quota
+    running out) keeps what it has done. No new clip is started after `deadline`
+    (a time.time() value).
+    """
     model, processor = load(spec, device_map)
     rows: list[dict[str, object]] = []
     for path in clips:
+        if deadline is not None and time.time() > deadline:
+            break
         frames, fps = read_clip(path, spec.sample_fps)
         for name in spec.prompts:
             t0 = time.time()
@@ -131,4 +143,6 @@ def label_clips(
                     "seconds": round(time.time() - t0, 2),
                 }
             )
+            if on_row is not None:
+                on_row(rows[-1])
     return rows
