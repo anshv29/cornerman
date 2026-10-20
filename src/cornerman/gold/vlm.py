@@ -39,17 +39,20 @@ _CLIP = (
 
 STATE_DEFINITIONS = {
     State.STANDING_NEUTRAL: "on the feet, not clinched, not pinned on the fence",
-    State.STANDING_CAGE_PRESSURING: "on the feet, pushing the opponent against the fence",
-    State.STANDING_CAGE_PRESSURED: "on the feet, pinned against the fence by the opponent",
+    State.STANDING_CAGE_PRESSURING: "on the feet, pushing or holding the opponent against "
+    "the fence (including clinching them against the fence)",
+    State.STANDING_CAGE_PRESSURED: "on the feet, pinned against the fence by the opponent "
+    "(including being clinched against the fence)",
     State.STANDING_OPPONENT_HURT: "on the feet, and the opponent is visibly hurt "
     "(stumbling, buckled legs, covering up after being hit)",
-    State.CLINCH_CONTROLLING: "standing, upper bodies locked together, and this "
-    "fighter has the better grips or position",
-    State.CLINCH_CONTROLLED: "standing, upper bodies locked together, and the "
-    "opponent has the better grips or position",
-    State.GROUND_TOP: "on the ground, on top of the opponent (including inside "
-    "their guard, side control, mount, or on their back)",
-    State.GROUND_BOTTOM: "on the ground, underneath the opponent (including holding guard)",
+    State.CLINCH_CONTROLLING: "standing, upper bodies locked together away from the "
+    "fence, and this fighter has the better grips or position",
+    State.CLINCH_CONTROLLED: "standing, upper bodies locked together away from the "
+    "fence, and the opponent has the better grips or position",
+    State.GROUND_TOP: "on top of a downed opponent: inside their guard, side "
+    "control, mount, on their back, or standing over an opponent who is down on the mat",
+    State.GROUND_BOTTOM: "down on the mat with the opponent on top or standing over "
+    "them (including holding guard)",
     State.GROUND_SCRAMBLING: "on the ground and nobody is on top: both are moving to "
     "get up or to get position",
 }
@@ -68,9 +71,10 @@ PROMPTS: dict[str, str] = {
     "walk-outs, introductions, close-ups of one person, replays, the referee "
     "stopping the fight, after the fight) yes / no\n"
     "2. level: are both fighters on their feet, or is the fight on the ground (at "
-    "least one fighter down on the mat, with the other on them or engaging)? "
-    "standing / ground\n"
-    "3. top: if on the ground, which fighter is on top? red / blue / neither\n"
+    "least one fighter down on the mat, with the other on them or standing over "
+    "them)? standing / ground\n"
+    "3. top: if on the ground, which fighter is on top (or standing over the other)? "
+    "red / blue / neither\n"
     "4. clinch: if standing, are their upper bodies locked together (grips on the "
     "head, neck, arms or body)? yes / no\n"
     "5. clinch_control: if clinched, who has the better grips or position? red / "
@@ -134,8 +138,10 @@ def _other(c: str) -> Corner:
 def parse_questions(text: str) -> Labels | None:
     """Labels worked out from a 'questions' answer, or None if it can't be decided.
 
-    An even clinch has no state in the taxonomy (one fighter must be controlling),
-    so it gives None rather than a guess.
+    A fighter pinned on the fence makes it cage pressure even in a clinch (the
+    clinch states are for clinches away from the fence). An even clinch has no
+    state in the taxonomy (one fighter must be controlling), so it gives None
+    rather than a guess.
     """
     a = extract_json(text)
     if a is None:
@@ -151,15 +157,16 @@ def parse_questions(text: str) -> Labels | None:
             s["red"] = s["blue"] = State.GROUND_SCRAMBLING
     elif a.get("level") == "standing":
         control, pinned, hurt = a.get("clinch_control"), a.get("fence"), a.get("hurt")
-        if a.get("clinch") == "yes":
-            if control not in ("red", "blue"):
-                return None
-            s[control], s[_other(control)] = State.CLINCH_CONTROLLING, State.CLINCH_CONTROLLED
-        elif pinned in ("red", "blue"):
+        # The fence comes first: a clinch against the fence is cage pressure.
+        if pinned in ("red", "blue"):
             s[pinned] = State.STANDING_CAGE_PRESSURED
             s[_other(pinned)] = (
                 State.STANDING_OPPONENT_HURT if hurt == pinned else State.STANDING_CAGE_PRESSURING
             )
+        elif a.get("clinch") == "yes":
+            if control not in ("red", "blue"):
+                return None
+            s[control], s[_other(control)] = State.CLINCH_CONTROLLING, State.CLINCH_CONTROLLED
         elif hurt in ("red", "blue"):
             s[hurt], s[_other(hurt)] = State.STANDING_NEUTRAL, State.STANDING_OPPONENT_HURT
         else:

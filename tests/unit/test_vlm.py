@@ -36,6 +36,11 @@ def test_parse_direct() -> None:
         ({"fence": "red"}, "standing-cage-pressured", "standing-cage-pressuring"),
         ({"fence": "red", "hurt": "red"}, "standing-cage-pressured", "standing-opponent-hurt"),
         ({"hurt": "blue"}, "standing-opponent-hurt", "standing-neutral"),
+        (
+            {"clinch": "yes", "clinch_control": "blue", "fence": "red"},
+            "standing-cage-pressured",
+            "standing-cage-pressuring",
+        ),
     ],
 )
 def test_parse_questions(answers: dict[str, str], red: str, blue: str) -> None:

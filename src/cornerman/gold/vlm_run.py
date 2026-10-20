@@ -25,6 +25,9 @@ class VlmSpec:
     sample_fps: float = 4.0
     """Frames per second given to the model (clips are 10 fps)."""
     max_new_tokens: int = 160
+    max_memory: dict[int, str] | None = None
+    """Per-GPU cap for weights when spread over GPUs, e.g. {0: "7GiB", 1: "14GiB"}:
+    GPU 0 also holds the vision encoder's activations for a whole clip."""
 
 
 def read_clip(path: Path, sample_fps: float) -> tuple[np.ndarray, float]:
@@ -67,6 +70,7 @@ def load(spec: VlmSpec, device_map: str | dict[str, int] = "auto") -> tuple[Any,
         revision=spec.revision,
         dtype=torch.float16,
         device_map=device_map if spread else None,
+        max_memory=spec.max_memory if spread else None,
     )
     if not spread:
         model = model.to(device_map)
