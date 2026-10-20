@@ -48,8 +48,9 @@ def main() -> None:
         spec = VlmSpec(**m)  # pyright: ignore[reportArgumentType]
         entry: dict[str, object] = {"model": spec.name, "revision": spec.revision}
         t0 = time.time()
+        torch.cuda.init()  # the peak-memory counters need CUDA set up first
         for d in range(torch.cuda.device_count()):
-            torch.cuda.reset_peak_memory_stats(d)
+            torch.cuda.reset_peak_memory_stats(torch.device("cuda", d))
         try:
             rows = label_clips(spec, clips)
             with out.open("a") as f:
