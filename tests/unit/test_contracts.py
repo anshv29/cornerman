@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -70,3 +73,16 @@ def test_all_failures_reported_together() -> None:
         validate_events(df)
     assert "confidence" in str(e.value)
     assert "source" in str(e.value)
+
+
+def test_usable_and_population_fights(tmp_path: Path) -> None:
+    from cornerman.contracts.perception import population_fights, usable_fights
+
+    for fid, conf in (("ft_good", 0.7), ("ft_bad", 0.3)):
+        (tmp_path / fid / "identity").mkdir(parents=True)
+        (tmp_path / fid / "identity" / "quality.json").write_text(
+            json.dumps({"confidence": conf, "flagged": conf < 0.5, "checks": {"dup": 0.0}})
+        )
+    assert usable_fights(tmp_path) == ["ft_good"]
+    assert population_fights(tmp_path) == ["ft_bad", "ft_good"]
+    assert usable_fights(tmp_path / "none") == []

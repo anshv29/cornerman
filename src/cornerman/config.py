@@ -94,8 +94,10 @@ class PerceptionConfig(BaseModel):
     identity_probe: Path = Path(__file__).parent / "perception" / "identity_probe.npz"
     """Fighter-versus-official classifier weights (`cornerman identity-probe` writes them).
     Shipped inside the package so the Kaggle job, which pip-installs it, has them too."""
-    identity_flag_below: float = Field(default=0.4, ge=0, le=1)
-    """Fights whose identity confidence is below this are flagged (quality.json)."""
+    identity_flag_below: float = Field(default=0.5, ge=0, le=1)
+    """Fights whose identity confidence is below this are flagged (quality.json). 0.5 was
+    chosen after the held-out test (the frozen 0.4 caught too few wrong fights), so it
+    must be re-validated on the next fresh fights (DECISIONS.md, 2026-10-19)."""
     pose_model: str = "usyd-community/vitpose-plus-large"
     pose_revision: str = "e211df377e49"
     pose_batch: int = Field(default=16, ge=1)

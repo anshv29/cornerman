@@ -103,9 +103,18 @@ def fighter_boxes(
 
 
 def usable_fights(derived: Path) -> list[str]:
-    """Fights whose identity isn't flagged. Later models should train and test on these only."""
+    """Fights whose identity isn't flagged: the only ones for anything per fighter
+    (fighter models, scouting reports, per-fighter labels in the gold set)."""
     q = identity_quality(derived)
     return sorted(q.loc[~q["flagged"], "fight_id"].tolist()) if len(q) else []
+
+
+def population_fights(derived: Path) -> list[str]:
+    """Every fight with identity output, flagged or not. Only for population-level numbers
+    where who is red and who is blue doesn't matter (for example how often fights reach
+    the ground); never for anything per fighter."""
+    q = identity_quality(derived)
+    return sorted(q["fight_id"].tolist()) if len(q) else []
 
 
 POSES_SCHEMA = pa.DataFrameSchema(

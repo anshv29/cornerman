@@ -148,8 +148,8 @@ class IdentityParams:
     hue_weight: float = 1.0
     steps: int = 400
     margin: float = 0.3
-    flag_below: float = 0.4
-    """Fights with a confidence below this are flagged."""
+    flag_below: float = 0.5
+    """Fights with a confidence below this are flagged (see config.identity_flag_below)."""
 
 
 @dataclass(frozen=True)
