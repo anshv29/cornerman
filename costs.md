@@ -12,5 +12,8 @@ Cap: $50 USD total for GPU time and hosted APIs. Ask Ansh before spending anythi
 | 2026-10-18 | Rerun of the 2 oldest pilot fights for crops and poses, about 25 minutes of free T4 x2 quota | Kaggle | 0.00 | 0.00 |
 | 2026-10-18 | 45 fights in 3 batches toward the 50-fight run, about 7.3 hours of free T4 x2 quota | Kaggle | 0.00 | 0.00 |
 | 2026-10-19 | The last 24 IMMAF fights (the held-out identity test), about 3.5 hours of free T4 x2 quota | Kaggle | 0.00 | 0.00 |
+| 2026-10-19 | VLM pilots (40 clips; Qwen3-VL 4B and 8B, three runs plus one that failed at start), about 1.8 hours of free T4 x2 quota | Kaggle | 0.00 | 0.00 |
+| 2026-10-20 | VLM full run that ran out of memory (one model copy per GPU), about 0.65 hours of free quota | Kaggle | 0.00 | 0.00 |
+| 2026-10-20 | VLM full run, 400 clips with both prompts, about 3.5 hours of free quota | Kaggle | 0.00 | 0.00 |
 
 Current total: **$0.00**
