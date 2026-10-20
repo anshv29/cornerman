@@ -101,7 +101,8 @@ def windows(
     # A run is consecutive fighting frames in one shot; clips are cut from the start of each run.
     new_run = f["shot_id"].ne(f["shot_id"].shift()) | (f["t"].diff() > 2.5 * step)
     f = f.assign(run=new_run.cumsum())
-    f["clip"] = ((f["t"] - f.groupby("run")["t"].transform("min")) // clip_s).astype(int)
+    f["run_t0"] = f.groupby("run")["t"].transform("min")
+    f["clip"] = ((f["t"] - f["run_t0"]) // clip_s).astype(int)
 
     b = boxes.merge(torso_angles(poses), on=["frame", "track_id"], how="left")
     b = b.assign(h=b["y2"] - b["y1"], w=b["x2"] - b["x1"])
@@ -132,7 +133,7 @@ def windows(
     out = g.groupby(["run", "clip"]).agg(
         shot_id=("shot_id", "first"),
         t0=("t", "min"),
-        t1=("t", "max"),
+        run_t0=("run_t0", "first"),
         n_frames=("t", "size"),
         both=("both", "mean"),
         gap=("gap", "median"),
@@ -140,7 +141,9 @@ def windows(
         angle_max=("angle", "median"),
         aspect_min=("aspect", "median"),
     )
-    out["t1"] = out["t0"] + clip_s
+    # The window ends where the next one starts; t0 is its first frame, which can be a
+    # little after the window start, so t0 + clip_s would overlap the next clip.
+    out["t1"] = out["run_t0"] + (out.index.get_level_values("clip") + 1) * clip_s
     out = out[out["n_frames"] >= min_cover * clip_s / step].reset_index(drop=True)
     out["stratum"] = strata(out)
     return out[[*cols, "stratum"]]

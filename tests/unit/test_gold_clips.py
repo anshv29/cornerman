@@ -48,7 +48,8 @@ def test_torso_angles() -> None:
 def test_windows_follow_shots_and_strata() -> None:
     w = windows(*_fight(), clip_s=3.0)
     assert w["stratum"].tolist() == ["apart", "apart", "close", "ground"]
-    assert (w["t1"] - w["t0"]).eq(3.0).all()
+    assert (w["t1"] - w["t0"]).between(2.9, 3.0).all()
+    assert (w["t0"].iloc[1:].to_numpy() >= w["t1"].iloc[:-1].to_numpy()).all()  # no overlap
     assert w["shot_id"].tolist() == [0, 0, 1, 1]
 
 

@@ -53,3 +53,13 @@ def test_cut_fight_writes_one_clip_per_row(tmp_path: Path) -> None:
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
     assert n == 10 and h == 480
+
+
+def test_overlapping_clips_both_get_written(tmp_path: Path) -> None:
+    video = tmp_path / "v.mp4"
+    _video(video, 90)
+    frames = pd.DataFrame({"frame": np.arange(0, 90, STEP), "t": np.arange(0, 90, STEP) / FPS})
+    boxes = pd.DataFrame(columns=["frame", "role", "x1", "y1", "x2", "y2"])
+    clips = pd.DataFrame({"clip_id": ["a", "b"], "t0": [0.0, 0.9], "t1": [1.0, 1.9]})
+    paths = cut_fight(video, STEP, frames, boxes, clips, tmp_path / "out", fps=10)
+    assert sorted(p.name for p in paths) == ["a.mp4", "b.mp4"]

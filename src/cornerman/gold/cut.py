@@ -85,23 +85,26 @@ def cut_fight(
     role, x1..y2), `clips` this fight's rows of the sample (clip_id, t0, t1).
     """
     wanted = clip_frames(frames, clips)
-    owner = {f: cid for cid, fs in wanted.items() for f in fs}
-    if not owner:
+    owners: dict[int, list[str]] = {}
+    for cid, fs in wanted.items():
+        for f in fs:
+            owners.setdefault(f, []).append(cid)
+    if not owners:
         return []
     by_frame = dict(tuple(boxes.groupby("frame")))
     buffers: dict[str, list[np.ndarray]] = {cid: [] for cid in wanted}
     written: list[Path] = []
-    last = max(owner)
-    for idx, frame in iter_frames(video, step=step, until_frame=last + 1):
-        cid = owner.get(idx)
-        if cid is None:
+    for idx, frame in iter_frames(video, step=step, until_frame=max(owners) + 1):
+        if idx not in owners:
             continue
         b = by_frame.get(idx)
-        buffers[cid].append(draw(frame, b) if b is not None else frame)
-        if idx == wanted[cid][-1]:
-            path = out_dir / f"{cid}.mp4"
-            encode(buffers.pop(cid), path, fps)
-            written.append(path)
+        img = draw(frame, b) if b is not None else frame
+        for cid in owners[idx]:
+            buffers[cid].append(img)
+            if idx == wanted[cid][-1]:
+                path = out_dir / f"{cid}.mp4"
+                encode(buffers.pop(cid), path, fps)
+                written.append(path)
     return written
 
 
