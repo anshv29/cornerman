@@ -134,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
     p_vpush.add_argument("--per-stratum", type=int, default=0, help="0 = every clip")
     vlm.add_parser("import", help="pull the labels and delete the clips dataset")
     sub.add_parser("gold-rules", help="labeller A on the sampled clips")
+    p_silver = sub.add_parser("gold-silver", help="combine labellers into the silver set")
+    p_silver.add_argument("--labels", type=Path, required=True, help="a labels_*.jsonl run")
     sub.add_parser("gold-vicos", help="measure the rules labeller on ViCoS jiu-jitsu (local)")
     args = parser.parse_args(argv)
 
@@ -153,6 +155,22 @@ def main(argv: list[str] | None = None) -> int:
         return _gold_cut(args.clips, args.config, args.fights_csv, args.out)
     if args.command == "gold-rules":
         return _gold_rules(Path("data/gold/clips.parquet"), Path("data/derived"))
+    if args.command == "gold-silver":
+        from cornerman.gold.silver import report, silver
+
+        gold = Path("data/gold")
+        w = silver(
+            pd.read_json(args.labels, lines=True),
+            pd.read_parquet(gold / "rules.parquet"),
+            pd.read_parquet(gold / "clips.parquet"),
+        )
+        w.to_parquet(gold / "silver.parquet", index=False)
+        print(report(w).to_string())
+        kept = w[w["silver"]]
+        print(f"{len(kept)} silver clips of {len(w)}, from {kept['fight_id'].nunique()} fights")
+        states = pd.concat([kept["red_direct"], kept["blue_direct"]]).value_counts()
+        print(states.to_string())
+        return 0
     if args.command == "gold-vicos":
         from cornerman.gold.vicos import load, rules_on_frames, rules_report
 
