@@ -85,6 +85,9 @@ Free Kaggle GPU used so far: about 23 hours in total. On 2026-10-19 and 10-20: a
 
 ## Next
 1. The VLM run on all 1,000 clips with both prompts (Qwen3-VL-4B only). The 2026-10-20 push never reached the kernel step, so Kaggle's COMPLETE status was still the old 400-clip run. Pushed again 2026-10-24 23:07 UTC as kernel version 7, confirmed RUNNING. Expected about 8.7 h; it stops starting clips after 11 h and writes answers as it goes. Labeller A was rerun on all 1,000 clips the same day (`data/gold/rules.parquet`). When it finishes: `cornerman gold-vlm import` (also deletes the clips dataset), then `gold-silver --labels data/gold/vlm/labels_005.jsonl`, then a by-eye spot check of silver clips per state.
+   **Ansh's instructions for this step (2026-10-24):**
+   - No human labelling. The agent does the spot check itself by eye (`gold/spot.py`: contact sheets in `data/gold/spot/`, verdicts per clip), and reports it as agent-judged and not blind.
+   - Report a separate lower tier: clips where both prompts agree but the rules abstain (`prompts_only` in `silver.parquet`, mostly merged). Keep it apart from silver, spot check it too, and say how much to trust it.
 2. Report silver coverage and spot-check precision per state, not only overall (clinch and ground are the thin ones).
 3. Phase 3 can then start: per-state accuracy of the rules labeller against silver, and Dawid-Skene over labellers A and B.
 4. MLflow comes later, before the first real model fit (Phase 4).
