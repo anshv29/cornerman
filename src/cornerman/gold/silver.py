@@ -8,6 +8,11 @@ A clip is silver for a model when:
 It is called silver, not gold, everywhere: three automatic labellers agreeing
 is evidence, not ground truth, and the set leans towards the easy cases where
 they can agree (rules need both fighters boxed separately, for example).
+
+A lower tier, prompts_only, keeps clips where both prompts agree but the rules
+abstain (no coarse label, mostly tangled or merged boxes). It is weaker: the
+two prompts come from the same model, so their errors are correlated. It is
+kept apart from silver and never counted as silver.
 """
 
 import pandas as pd
@@ -36,7 +41,7 @@ def by_clip(labels: pd.DataFrame) -> pd.DataFrame:
 def silver(labels: pd.DataFrame, rules: pd.DataFrame, clips: pd.DataFrame) -> pd.DataFrame:
     """Every (model, clip) with stratum, both prompts' labels, the rules label and flags:
     readable (both prompts parsed), live (both said live), prompts_agree, rules_agree,
-    silver (all of it)."""
+    silver (all of it), and prompts_only (prompts agree, rules abstain)."""
     w = by_clip(labels).merge(rules[["clip_id", "rules"]], on="clip_id", how="left")
     w = w.merge(clips[["clip_id", "fight_id", "stratum"]], on="clip_id", how="left")
     w["readable"] = w["live_direct"].notna() & w["live_questions"].notna()
@@ -52,6 +57,7 @@ def silver(labels: pd.DataFrame, rules: pd.DataFrame, clips: pd.DataFrame) -> pd
                                 strict=True)
     ]  # fmt: skip
     w["silver"] = w["prompts_agree"] & w["rules_agree"]
+    w["prompts_only"] = w["prompts_agree"] & w["rules"].isna()
     return w
 
 
@@ -62,7 +68,8 @@ def by_state(w: pd.DataFrame) -> pd.DataFrame:
     - both: how often both prompts name it for the same fighter;
     - agree: both / (direct + questions - both), so 1 means the prompts never split on it;
     - pair: of `both`, the clips where the prompts also agree on the other fighter;
-    - silver: of `pair`, the clips the rules accept too; rules_pass = silver / pair.
+    - silver: of `pair`, the clips the rules accept too; rules_pass = silver / pair;
+    - prompts_only: of `pair`, the clips where the rules abstain (the lower tier).
 
     These are agreement numbers between labellers, not accuracy against ground truth.
     """
@@ -76,6 +83,7 @@ def by_state(w: pd.DataFrame) -> pd.DataFrame:
                     "questions": live[f"{side}_questions"],
                     "prompts_agree": live["prompts_agree"],
                     "silver": live["silver"],
+                    "prompts_only": live["prompts_only"],
                 }
             )
             for side in ("red", "blue")
@@ -92,6 +100,7 @@ def by_state(w: pd.DataFrame) -> pd.DataFrame:
             n_any = int(d.sum() + q.sum()) - n_both
             pair = int((both & g["prompts_agree"]).sum())
             kept = int((both & g["silver"]).sum())
+            lower = int((both & g["prompts_only"]).sum())
             rows.append(
                 {
                     "model": model,
@@ -103,6 +112,7 @@ def by_state(w: pd.DataFrame) -> pd.DataFrame:
                     "pair": pair,
                     "silver": kept,
                     "rules_pass": kept / pair if pair else float("nan"),
+                    "prompts_only": lower,
                 }
             )
     return pd.DataFrame(rows).set_index(["model", "state"]).round(2)
@@ -110,7 +120,7 @@ def by_state(w: pd.DataFrame) -> pd.DataFrame:
 
 def report(w: pd.DataFrame) -> pd.DataFrame:
     """Per model and stratum: clips, then the share readable, live, with both prompts
-    agreeing, and silver."""
+    agreeing, silver, and the lower prompts_only tier."""
     g = w.groupby(["model", "stratum"])
     out = pd.DataFrame(
         {
@@ -119,6 +129,7 @@ def report(w: pd.DataFrame) -> pd.DataFrame:
             "live": g["live"].mean(),
             "prompts_agree": g["prompts_agree"].mean(),
             "silver": g["silver"].mean(),
+            "prompts_only": g["prompts_only"].mean(),
         }
     )
     return out.round(2)

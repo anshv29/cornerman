@@ -182,6 +182,11 @@ def main(argv: list[str] | None = None) -> int:
         print(report(w).to_string())
         kept = w[w["silver"]]
         print(f"{len(kept)} silver clips of {len(w)}, from {kept['fight_id'].nunique()} fights")
+        low = w[w["prompts_only"]]
+        print(
+            f"{len(low)} lower-tier clips (prompts agree, rules abstain; not silver), "
+            f"from {low['fight_id'].nunique()} fights"
+        )
         print("per state, in fighter-clips (agreement between labellers, not accuracy):")
         print(by_state(w).to_string())
         return 0
