@@ -218,9 +218,17 @@ def upload_dataset(
     that flag. The anonymous check afterwards confirms it.
     """
     if dataset_exists(ref, runner):
-        kaggle(["datasets", "version", "-p", str(folder), "-m", "batch", "-q"], runner)
+        args = ["datasets", "version", "-p", str(folder), "-m", "batch", "-q"]
     else:
-        kaggle(["datasets", "create", "-p", str(folder), "-q"], runner)
+        args = ["datasets", "create", "-p", str(folder), "-q"]
+    try:
+        kaggle(args, runner)
+    except KaggleError as e:
+        # The CLI sometimes uploads everything and then can't parse Kaggle's reply.
+        # The ready and privacy checks below still run; anything else is a real failure.
+        if "Expecting value" not in str(e):
+            raise
+        print(f"kaggle {args[1]}: reply not readable, checking the dataset instead")
     deadline = time.monotonic() + wait_s
     while True:
         try:

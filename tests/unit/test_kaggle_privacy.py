@@ -9,6 +9,7 @@ import pytest
 from cornerman.remote.kaggle import (
     KaggleError,
     PrivacyError,
+    Runner,
     build_kernel,
     check_args,
     check_kernel_metadata,
@@ -160,6 +161,32 @@ def test_dataset_upload_is_private_and_checked(tmp_path: Path) -> None:
     calls.clear()
     with pytest.raises(PrivacyError):
         upload_dataset(tmp_path, "me/videos", runner, probe=lambda url: 200)
+
+
+def test_dataset_upload_survives_unreadable_reply_but_not_other_errors(tmp_path: Path) -> None:
+    """The CLI can finish the upload and then fail to parse the reply ("Expecting value")."""
+    from cornerman.remote.kaggle import upload_dataset
+
+    def runner_with(error: str) -> tuple[Runner, list[Sequence[str]]]:
+        calls: list[Sequence[str]] = []
+
+        def runner(args: Sequence[str]) -> str:
+            calls.append(args)
+            if list(args[:2]) == ["datasets", "version"]:
+                raise KaggleError(error)
+            return "ready"
+
+        return runner, calls
+
+    runner, calls = runner_with("Expecting value: line 1 column 1 (char 0)")
+    upload_dataset(tmp_path, "me/videos", runner, probe=lambda url: 403)
+    assert calls[-1][:2] == ["datasets", "status"]  # still waited for ready
+    with pytest.raises(PrivacyError):  # and still checked privacy
+        upload_dataset(tmp_path, "me/videos", runner, probe=lambda url: 200)
+
+    runner, _ = runner_with("401 Unauthorized")
+    with pytest.raises(KaggleError):
+        upload_dataset(tmp_path, "me/videos", runner, probe=lambda url: 403)
 
 
 def test_built_values_are_valid_python(tmp_path: Path) -> None:
