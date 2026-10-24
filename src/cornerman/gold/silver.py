@@ -55,6 +55,59 @@ def silver(labels: pd.DataFrame, rules: pd.DataFrame, clips: pd.DataFrame) -> pd
     return w
 
 
+def by_state(w: pd.DataFrame) -> pd.DataFrame:
+    """Per model and state, counted in fighter-clips (each clip gives a red and a blue one),
+    live clips only:
+    - direct, questions: how often each prompt names the state;
+    - both: how often both prompts name it for the same fighter;
+    - agree: both / (direct + questions - both), so 1 means the prompts never split on it;
+    - pair: of `both`, the clips where the prompts also agree on the other fighter;
+    - silver: of `pair`, the clips the rules accept too; rules_pass = silver / pair.
+
+    These are agreement numbers between labellers, not accuracy against ground truth.
+    """
+    live = w[w["live"]]
+    sides = pd.concat(
+        [
+            pd.DataFrame(
+                {
+                    "model": live["model"],
+                    "direct": live[f"{side}_direct"],
+                    "questions": live[f"{side}_questions"],
+                    "prompts_agree": live["prompts_agree"],
+                    "silver": live["silver"],
+                }
+            )
+            for side in ("red", "blue")
+        ],
+        ignore_index=True,
+    )
+    rows: list[dict[str, object]] = []
+    for model, g in sides.groupby("model"):
+        for state in State:
+            d = g["direct"] == state.value
+            q = g["questions"] == state.value
+            both = d & q
+            n_both = int(both.sum())
+            n_any = int(d.sum() + q.sum()) - n_both
+            pair = int((both & g["prompts_agree"]).sum())
+            kept = int((both & g["silver"]).sum())
+            rows.append(
+                {
+                    "model": model,
+                    "state": state.value,
+                    "direct": int(d.sum()),
+                    "questions": int(q.sum()),
+                    "both": n_both,
+                    "agree": n_both / n_any if n_any else float("nan"),
+                    "pair": pair,
+                    "silver": kept,
+                    "rules_pass": kept / pair if pair else float("nan"),
+                }
+            )
+    return pd.DataFrame(rows).set_index(["model", "state"]).round(2)
+
+
 def report(w: pd.DataFrame) -> pd.DataFrame:
     """Per model and stratum: clips, then the share readable, live, with both prompts
     agreeing, and silver."""

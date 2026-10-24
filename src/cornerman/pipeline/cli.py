@@ -170,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "gold-rules":
         return _gold_rules(Path("data/gold/clips.parquet"), Path("data/derived"))
     if args.command == "gold-silver":
-        from cornerman.gold.silver import report, silver
+        from cornerman.gold.silver import by_state, report, silver
 
         gold = Path("data/gold")
         w = silver(
@@ -182,8 +182,8 @@ def main(argv: list[str] | None = None) -> int:
         print(report(w).to_string())
         kept = w[w["silver"]]
         print(f"{len(kept)} silver clips of {len(w)}, from {kept['fight_id'].nunique()} fights")
-        states = pd.concat([kept["red_direct"], kept["blue_direct"]]).value_counts()
-        print(states.to_string())
+        print("per state, in fighter-clips (agreement between labellers, not accuracy):")
+        print(by_state(w).to_string())
         return 0
     if args.command == "gold-vicos":
         from cornerman.gold.vicos import load, rules_on_frames, rules_report

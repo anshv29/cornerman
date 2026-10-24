@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from cornerman.gold.silver import report, silver
+from cornerman.gold.silver import by_state, report, silver
 
 Answer = tuple[str, str | None, str | None]
 
@@ -32,3 +32,10 @@ def test_silver_needs_all_three() -> None:
     assert not w.loc["d", "live"]
     r = report(w.reset_index())
     assert r.loc[("m", "ground"), "silver"] == 0.25
+    s = by_state(w.reset_index()).loc["m"]
+    # a, b and c are live; a and c agree on both fighters, b names the states the other way.
+    want = {"direct": 3, "questions": 3, "both": 2, "pair": 2, "silver": 1}
+    assert {k: s.at["ground-top", k] for k in want} == want
+    assert s.loc["ground-top", "agree"] == 0.5  # 2 shared out of 4 distinct fighter-clips
+    assert s.loc["ground-top", "rules_pass"] == 0.5  # c fails the rules
+    assert s.loc["standing-neutral", "direct"] == 0
