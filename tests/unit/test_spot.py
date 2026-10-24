@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-import cv2
 import numpy as np
 import pandas as pd
+import pytest
 
 from cornerman.gold.spot import contact_sheet, pair_group, sample
 
@@ -35,6 +35,7 @@ def test_sample_caps_each_tier_and_group() -> None:
 
 
 def test_contact_sheet_is_a_2x2_grid(tmp_path: Path) -> None:
+    cv2 = pytest.importorskip("cv2")
     clip = tmp_path / "c.mp4"
     out = cv2.VideoWriter(str(clip), cv2.VideoWriter.fourcc(*"mp4v"), 10, (64, 48))
     for i in range(30):

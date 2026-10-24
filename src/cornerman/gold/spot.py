@@ -16,11 +16,8 @@ Sheets go to data/gold/spot/ (gitignored, local only) because they are footage.
 
 from pathlib import Path
 
-import cv2
 import numpy as np
 import pandas as pd
-
-from cornerman.perception.video import iter_frames
 
 
 def pair_group(red: str, blue: str) -> str:
@@ -48,6 +45,10 @@ def sample(w: pd.DataFrame, per_group: int, seed: int = 0) -> pd.DataFrame:
 
 def contact_sheet(clip: Path, out: Path, frames: int = 4, height: int = 240) -> None:
     """A 2x2 grid of `frames` frames spread evenly over the clip, each `height` px high."""
+    import cv2  # the gpu extra; imported here so sampling works without it
+
+    from cornerman.perception.video import iter_frames
+
     images = [f for _, f in iter_frames(clip)]
     if not images:
         raise ValueError(f"no frames in {clip}")
