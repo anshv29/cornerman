@@ -96,6 +96,21 @@ PROMPTS: dict[str, str] = {
     '"clinch_control": "...", "fence": "...", "hurt": "..."}',
 }
 
+
+def swap_colours(text: str) -> str:
+    """Swap every red/RED with blue/BLUE. In the questions prompt each colour is
+    named symmetrically ("a RED box and the other with a BLUE box", "red / blue /
+    even"), so this only flips which corner comes first."""
+    table = {"red": "blue", "blue": "red", "RED": "BLUE", "BLUE": "RED"}
+    return re.sub(r"\b(red|blue|RED|BLUE)\b", lambda m: table[m.group(1)], text)
+
+
+# The questions prompt with blue named first everywhere. The direct prompt said
+# red was controlling in every clinch (114 to 0), so clinch control is only
+# trusted where the questions answer survives this swap. Answers still name the
+# corners by colour, so parse_questions reads both.
+PROMPTS["questions_swapped"] = swap_colours(PROMPTS["questions"])
+
 _NOT_LIVE: Labels = {"live": "no", "red": None, "blue": None}
 
 

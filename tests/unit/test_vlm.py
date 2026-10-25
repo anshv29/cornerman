@@ -57,3 +57,15 @@ def test_prompts_mention_both_boxes() -> None:
     for name in PROMPTS:
         p = prompt(name)
         assert "RED box" in p and "BLUE box" in p and "JSON" in p
+
+
+def test_swapped_prompt_only_changes_the_order_of_the_corners() -> None:
+    from cornerman.gold.vlm import PROMPTS, swap_colours
+
+    q, sw = PROMPTS["questions"], PROMPTS["questions_swapped"]
+    assert sw != q and swap_colours(sw) == q
+    assert sorted(q.lower().split()) == sorted(sw.lower().split())  # same words
+    assert "BLUE box and the other with a RED box" in sw
+    assert "blue / red / even" in sw
+    # The answer keys don't change, so the same parser reads both.
+    assert sw.split("Answer with JSON only")[1] == q.split("Answer with JSON only")[1]

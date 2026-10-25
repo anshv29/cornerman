@@ -16,7 +16,11 @@ import numpy as np
 
 from cornerman.gold.vlm import PROMPTS, parse_direct, parse_questions, prompt
 
-PARSERS = {"direct": parse_direct, "questions": parse_questions}
+PARSERS = {
+    "direct": parse_direct,
+    "questions": parse_questions,
+    "questions_swapped": parse_questions,
+}
 
 
 @dataclass(frozen=True)

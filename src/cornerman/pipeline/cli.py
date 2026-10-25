@@ -138,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
     p_vpush.add_argument("--models", default="4b,8b", help="comma list of " + ",".join(VLMS))
     p_vpush.add_argument("--per-stratum", type=int, default=0, help="0 = every clip")
     p_vpush.add_argument("--prompts", default="", help="comma list; default every prompt")
+    p_vpush.add_argument("--strata", default="", help="comma list, e.g. close,merged; default all")
     p_vpush.add_argument(
         "--hours", type=float, default=11.0, help="start no new clip after this (session cap 12)"
     )
@@ -438,6 +439,8 @@ def _gold_vlm(args: argparse.Namespace) -> int:
         return 0
     clips = pd.read_parquet(args.clips)
     clips = clips[[(args.clip_dir / f"{c}.mp4").exists() for c in clips["clip_id"]]]
+    if args.strata:
+        clips = clips[clips["stratum"].isin([x.strip() for x in str(args.strata).split(",")])]
     if args.per_stratum:
         clips = clips.groupby("stratum").head(args.per_stratum)
     models = [VLMS[m.strip()] for m in str(args.models).split(",")]
