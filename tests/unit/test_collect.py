@@ -190,3 +190,16 @@ def test_fights_without_a_division_on_screen_go_on_hold_until_cleared() -> None:
     t = build_tables(videos, min_height=480)
     held = age_hold(t.fights, videos, {"v3": "adult"})
     assert held["fight_id"].tolist() == [fight_id("test", "v2")]
+
+
+def test_adult_results_verdict_overrides_the_screen_but_not_the_title() -> None:
+    banner = "2019 IMMAF EUROPEAN AND JUNIOR EUROPEAN OPEN CHAMPIONSHIPS"
+    videos = [
+        video("v1", "Alex Doe", "Sam Roe", screen=banner),
+        video("v2", "Kim Poe", "Lee Moe", event="2019 Junior Test Cup", screen=banner),
+    ]
+    verdicts = {"v1": "adult", "v2": "adult"}
+    t = build_tables(videos, min_height=480, age_verdicts=verdicts)
+    assert t.fights["video_id"].tolist() == ["v1"]
+    reasons = dict(zip(t.skipped["video_id"], t.skipped["reason"], strict=True))
+    assert "word: junior" in reasons["v2"]

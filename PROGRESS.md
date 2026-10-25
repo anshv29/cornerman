@@ -94,14 +94,17 @@ Free Kaggle GPU used so far: about 23 hours in total. On 2026-10-19 and 10-20: a
    After the import: delete the `cornerman-vlm` kernel (all versions) and the `cornerman-clips` dataset (all versions), as Ansh asked on 2026-10-25, then strip any labels of removed fights (`cornerman purge-fights` lists in `data/meta/removed_*.txt`).
    Then the agent-judged spot check (`gold/spot.py`, up to 5 clips per state pair and tier), reported as agent-judged and not blind, with the lower tier (prompts agree, rules abstain) kept apart from silver.
 2. Report silver coverage and spot-check precision per state, not only overall (clinch and ground are the thin ones).
-3. Phase 3 can then start: per-state accuracy of the rules labeller against silver, and Dawid-Skene over labellers A and B.
-4. MLflow comes later, before the first real model fit (Phase 4).
+3. **Identity confidence per segment, not per fight** (Ansh, 2026-10-25: next priority after the silver report). Laptop only, no GPU: the four label-free checks per shot or per stretch of fighting time, so the clean parts of flagged fights become usable. The threshold needs its own check.
+4. Phase 3: per-state accuracy of the rules labeller against silver, and Dawid-Skene over labellers A and B.
+5. MLflow comes later, before the first real model fit (Phase 4).
 
-## Later (noted 2026-10-20)
-- **Identity confidence per segment, not per fight.** Flagging whole fights drops half the data (35 of 74). Most flagged fights are wrong only in parts (a ground scramble, a post-fight shot), so a confidence per segment (per shot, or per minute of fighting time) would let the clean parts of flagged fights be used. The four checks can be computed on any span of frames; the threshold would need its own check.
+**For the next GPU batch:** ft_2b1a88cfe9 is back in `fights.csv` (IMMAF's results put it in the adult 2019 European Middleweight bracket; its "junior" hit was the event banner). Not processed yet. Ansh: process it with the next batch, not on its own. `select_fights` picks it up automatically.
+
+## Tier 2 (in order, after Tier 1)
+1. **More adult amateur sources** (Ansh, 2026-10-25: first Tier 2 item). Only 15 of 90 fighters have 2+ fights in the IMMAF data, and per-fighter models need depth. Add more public amateur sources with repeat fighters. Same rules: adult bouts only (the same title, tag, screen and results checks), no pro promotion broadcasts, check each source's terms first.
+2. The rest of Tier 2 as in SPEC.md: scale to 1000+ fights, strike landed/missed and hurt detection, Hawkes, cardio, style embeddings, scouting report v2.
 
 ## Later (noted 2026-10-17)
-- **More amateur sources before Tier 2.** Only 18 of 125 fighters have 2+ fights in the IMMAF data. Per-fighter models need depth, so Tier 2 (scaling to 1000+ fights) must add more public amateur sources with repeat fighters. Same rules apply: adult bouts only, no pro promotion broadcasts.
 - **Fight results before Tier 3.** Result, method, round/time and weight class are empty because IMMAF's YouTube descriptions don't include them. Scrape them from IMMAF's website (check its terms first) before Tier 3, where the simulator and Elo baseline need outcomes.
 
 ## Blocked

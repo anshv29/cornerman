@@ -88,7 +88,8 @@ def build_tables(
     age_verdicts: Mapping[str, str] | None = None,
 ) -> Tables:
     """`age_verdicts` maps video_id to a results-check verdict (adult, junior or
-    unclear); junior counts as might-involve-a-minor, unclear drops only that bout."""
+    unclear); junior counts as might-involve-a-minor, unclear drops only that bout, and
+    adult overrides what the screen check read (but nothing else)."""
     verdicts = age_verdicts or {}
     skipped: list[dict[str, object]] = []
     rows: list[dict[str, object]] = []
@@ -107,7 +108,15 @@ def build_tables(
         reasons = [
             *minor_reasons(f"{v.title}\n{v.description}"),
             *(f"tags: {r}" for r in minor_reasons(v.tags)),
-            *(f"on screen: {r}" for r in minor_reasons(v.screen)),
+            # OCR can read an event banner ("European and Junior European Open
+            # Championships") rather than the division line, so a results check
+            # that found the bout in an adult bracket overrides the screen. It never
+            # overrides the title, description or tags.
+            *(
+                f"on screen: {r}"
+                for r in minor_reasons(v.screen)
+                if verdicts.get(v.video_id) != "adult"
+            ),
             *(["results check: junior"] if verdicts.get(v.video_id) == "junior" else []),
         ]
         if not reasons and verdicts.get(v.video_id) == "unclear":
