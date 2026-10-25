@@ -46,6 +46,22 @@ The Kaggle CLI runs through `uvx --from kaggle==2.2.4`, so it is pinned and need
 ## 2026-10-17: Adult bouts only
 We skip any bout that looks like it involves a minor: youth, junior and cadet divisions, and anything with "kids", "children", "U16"/"U18"-style age groups or an explicit age under 18 in the title or description. Junior is skipped even though some federations use it for 18 to 20 year olds, because we can't tell from a title which definition applies. On top of that, any fighter who appears in a skipped bout is dropped from the whole dataset, including their adult bouts, since we can't be sure when they turned 18. The filter lives in `cornerman.collect` and has its own tests. It runs before anything is downloaded, so video of a skipped bout never touches the laptop or Kaggle.
 
+## 2026-10-25: Adult bouts, part 2: read the score bar (10 junior bouts had slipped through)
+**What happened.** The agent's spot check of silver clips showed "JUNIORS / MEN / M: BANTAMWEIGHT" on the score bar of clips from fights we had kept. IMMAF runs junior divisions inside its main World and European Championships, and a title like "A vs. B | FULL FIGHT | 2025 IMMAF World Championships" doesn't say which division the bout is in. The filter read only titles and descriptions, so these passed.
+
+**Fix.** The minor check now reads four sources, and a hit in any of them skips the bout (and, as before, every bout of both fighters):
+- title and description (as before);
+- YouTube tags and playlist title, which can carry event names ("2026 Youth World Championships");
+- the on-screen graphics: `collect/screen.py` grabs 6 single frames spread over the video straight from the YouTube stream (no download, frames not kept), reads the bottom quarter with OCR, and runs the same word check on the text. A video whose screen can't be read stops collection with an error; it never passes silently.
+
+OCR is RapidOCR 3.10.0 (Apache 2.0; PP-OCR detection and recognition models, ONNX on CPU), in a separate `collect` extra so Kaggle doesn't install it. It reads the small division line reliably after a 2x upscale, about a second per frame. Tesseract was the alternative, but it needs a system install (Homebrew) and is weaker on small text over busy backgrounds; EasyOCR would pull torch into collection.
+
+**What was removed.** 10 of 74 fights showed a junior division on screen (3 of them also had "Youth World Championships" in their tags). They came from 2019 to 2025 events. All their data was deleted: derived stages, crops, identity caches, 127 silver-set clips and their rules and VLM labels, rows in job logs and identity quality, and the DVC cache entries (`dvc gc`). Their 20 fighters are gone from the registry; none of them had other kept bouts, and no remaining fighter's ID changed. Now 64 fights, 105 fighters, 18 with 2+ fights. The list of removed IDs is in `data/meta/removed_junior.txt` (local). Private Kaggle kernel outputs from earlier runs still hold derived data for some of these fights; deleting a kernel is Ansh's call.
+
+**Identity numbers change.** 6 of the 24 held-out identity test fights and 4 of the 30 dev fights were junior bouts. Their rows are removed from `experiments/identity_v3_*_verdicts.csv`. Held-out test, same method and threshold: 13 of 18 right (72%, was 18 of 24); unflagged at 0.4: 10 of 14 right; confidence AUC 0.77 (was 0.83). Dev: 19 of 26 (was 21 of 30). The earlier numbers in the identity entries below are kept as they were reported, with this correction.
+
+**Not settled: 26 fights whose graphics never show a division.** Mostly 2015 to 2021 events, where the score bar shows only the clock and round. Their titles, descriptions and tags don't mention a junior division either, so there's no evidence they are junior, but none that they aren't. They are kept for now; Ansh decides.
+
 ## 2026-10-17: Perception models (first pick, to be checked in the pilot)
 Constraints: fits a Kaggle T4 (16 GB), installs with pip, open weights, and a license that's fine for a public repo. That last point rules out Ultralytics YOLO and BoxMOT (both AGPL-3.0) and Sapiens (CC BY-NC).
 - Shot boundaries: TransNetV2 (`transnetv2-pytorch` 1.0.5, MIT). A small learned model trained for cuts and gradual transitions, which simple frame-difference methods (PySceneDetect's content detector) miss. PySceneDetect stays as a fallback.
