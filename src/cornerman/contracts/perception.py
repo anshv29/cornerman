@@ -7,6 +7,7 @@ import pandas as pd
 import pandera.pandas as pa
 from pandera.errors import SchemaErrors
 
+from cornerman.contracts.hold import HOLD_CSV, held_fights
 from cornerman.perception.identity import FIGHTERS, OTHER, ROLES
 from cornerman.pipeline.stage import QuarantineError
 
@@ -102,19 +103,23 @@ def fighter_boxes(
     return t.drop_duplicates(["frame", "role"]).reset_index(drop=True)
 
 
-def usable_fights(derived: Path) -> list[str]:
-    """Fights whose identity isn't flagged: the only ones for anything per fighter
-    (fighter models, scouting reports, per-fighter labels in the gold set)."""
+def usable_fights(derived: Path, hold: Path = HOLD_CSV) -> list[str]:
+    """Fights whose identity isn't flagged and that aren't on hold (contracts.hold): the
+    only ones for anything per fighter (fighter models, scouting reports, the gold set)."""
     q = identity_quality(derived)
-    return sorted(q.loc[~q["flagged"], "fight_id"].tolist()) if len(q) else []
+    if not len(q):
+        return []
+    q = q[~q["fight_id"].isin(held_fights(hold))]
+    return sorted(q.loc[~q["flagged"], "fight_id"].tolist())
 
 
-def population_fights(derived: Path) -> list[str]:
-    """Every fight with identity output, flagged or not. Only for population-level numbers
-    where who is red and who is blue doesn't matter (for example how often fights reach
-    the ground); never for anything per fighter."""
+def population_fights(derived: Path, hold: Path = HOLD_CSV) -> list[str]:
+    """Every fight with identity output, flagged or not, except those on hold. Only for
+    population-level numbers where who is red and who is blue doesn't matter (for
+    example how often fights reach the ground); never for anything per fighter."""
     q = identity_quality(derived)
-    return sorted(q["fight_id"].tolist()) if len(q) else []
+    held = held_fights(hold)
+    return sorted(f for f in q["fight_id"].tolist() if f not in held) if len(q) else []
 
 
 POSES_SCHEMA = pa.DataFrameSchema(

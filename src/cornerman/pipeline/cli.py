@@ -173,13 +173,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "gold-rules":
         return _gold_rules(Path("data/gold/clips.parquet"), Path("data/derived"))
     if args.command == "gold-silver":
+        from cornerman.contracts.hold import held_fights
         from cornerman.gold.silver import by_state, report, silver, swap_report
 
         gold = Path("data/gold")
+        clips = pd.read_parquet(gold / "clips.parquet")
+        held = clips["fight_id"].isin(held_fights())
+        print(f"{int(held.sum())} clips from fights on hold left out")
+        labels = pd.concat([pd.read_json(p, lines=True) for p in args.labels], ignore_index=True)
         w = silver(
-            pd.concat([pd.read_json(p, lines=True) for p in args.labels], ignore_index=True),
+            labels[labels["clip_id"].isin(clips.loc[~held, "clip_id"])],
             pd.read_parquet(gold / "rules.parquet"),
-            pd.read_parquet(gold / "clips.parquet"),
+            clips[~held],
         )
         w.to_parquet(gold / "silver.parquet", index=False)
         print(report(w).to_string())
@@ -472,7 +477,9 @@ def _metrics(derived: Path, fps: float) -> int:
     from cornerman.eval.perception_metrics import fight_metrics
 
     rows: list[dict[str, object]] = []
-    for fid in sorted(batch.done_fights(derived)):
+    from cornerman.contracts.hold import held_fights
+
+    for fid in sorted(batch.done_fights(derived) - held_fights()):
         d = derived / fid
         if not (d / "identity" / "fighting.parquet").exists():
             continue  # stub output (the fixture fight) or the older pilot layout

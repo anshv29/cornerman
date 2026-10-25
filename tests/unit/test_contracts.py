@@ -83,6 +83,13 @@ def test_usable_and_population_fights(tmp_path: Path) -> None:
         (tmp_path / fid / "identity" / "quality.json").write_text(
             json.dumps({"confidence": conf, "flagged": conf < 0.5, "checks": {"dup": 0.0}})
         )
-    assert usable_fights(tmp_path) == ["ft_good"]
-    assert population_fights(tmp_path) == ["ft_bad", "ft_good"]
-    assert usable_fights(tmp_path / "none") == []
+    no_hold = tmp_path / "no_hold.csv"
+    assert usable_fights(tmp_path, no_hold) == ["ft_good"]
+    assert population_fights(tmp_path, no_hold) == ["ft_bad", "ft_good"]
+    assert usable_fights(tmp_path / "none", no_hold) == []
+
+    # A fight on hold (age not confirmed) is left out of both.
+    hold = tmp_path / "hold.csv"
+    hold.write_text("fight_id,reason\nft_good,division not shown\n")
+    assert usable_fights(tmp_path, hold) == []
+    assert population_fights(tmp_path, hold) == ["ft_bad"]

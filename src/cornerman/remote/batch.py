@@ -13,6 +13,8 @@ from typing import Any
 import pandas as pd
 import yaml
 
+from cornerman.contracts.hold import HOLD_CSV, held_fights
+
 REPO = "https://github.com/anshv29/cornerman"
 FINAL_STAGE = "identity"
 
@@ -21,15 +23,18 @@ def done_fights(derived: Path) -> set[str]:
     return {p.parent.parent.name for p in derived.glob(f"*/{FINAL_STAGE}/manifest.json")}
 
 
-def select_fights(fights: pd.DataFrame, derived: Path, n: int) -> pd.DataFrame:
+def select_fights(
+    fights: pd.DataFrame, derived: Path, n: int, hold: Path = HOLD_CSV
+) -> pd.DataFrame:
     """The next n unprocessed fights, favouring fighters with the most fights.
 
     Repeat fighters are the most valuable data (SPEC Layer 0), so the pilot
-    starts with them.
+    starts with them. Fights on hold (contracts.hold) are never picked.
     """
     counts = pd.concat([fights["fighter_a_id"], fights["fighter_b_id"]]).value_counts()
     depth = fights["fighter_a_id"].map(counts) + fights["fighter_b_id"].map(counts)
-    todo = fights.assign(depth=depth)[~fights["fight_id"].isin(done_fights(derived))]
+    skip = done_fights(derived) | held_fights(hold)
+    todo = fights.assign(depth=depth)[~fights["fight_id"].isin(skip)]
     return todo.sort_values(["depth", "fight_id"], ascending=[False, True]).head(n)
 
 
