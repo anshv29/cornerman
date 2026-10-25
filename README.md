@@ -8,7 +8,7 @@ Cornerman turns public amateur MMA footage into a log of (state, action) events 
 
 Tier 0 (foundation) is done. Tier 1 Phase 1 (data and perception skeleton) is mostly done: real perception has run on 2 amateur fights so far.
 
-- **Fight list.** 64 adult amateur fights and 105 fighters from the IMMAF YouTube channel (18 fighters have 2 or more fights). Youth, junior and cadet bouts are skipped (checked in titles, descriptions, tags and the on-screen score bar), along with every bout of any fighter who appears in one. Fighters get anonymous IDs (`F0001`); real names stay on the laptop.
+- **Fight list.** 53 adult amateur fights and 88 fighters from the IMMAF YouTube channel (15 fighters have 2 or more fights). Youth, junior and cadet bouts are skipped (checked in titles, descriptions, tags and the on-screen score bar), along with every bout of any fighter who appears in one. Where the score bar doesn't show the division, the bout is checked against IMMAF's published results and dropped unless it's confirmed adult. Fighters get anonymous IDs (`F0001`); real names stay on the laptop.
 - **Perception pipeline.** Shot boundaries (TransNetV2), person detection (RF-DETR Large), tracking per shot (BoT-SORT), fighter A / fighter B / referee by cannot-link clustering on clothing colour, and 2D pose (ViTPose++ Large). Runs as private Kaggle GPU jobs, one fight per GPU.
 - **Pilot, 2 fights.** Label-free health numbers, not accuracy (the gold set for real accuracy comes in Phase 2):
 
@@ -16,6 +16,8 @@ Tier 0 (foundation) is done. Tier 1 Phase 1 (data and perception skeleton) is mo
   |---|---|---|---|
   | ft_97394d8b1a | 67% | 3.8 | 0.87 |
   | ft_9eec213a59 | 69% | 2.4 | 0.85 |
+
+  ft_97394d8b1a was removed from the dataset later (one of its fighters had fought in a junior bout); its pilot numbers are kept as a record.
 
   Known weak spots: in clinches the detector often draws one box around both fighters; identity (fighter A, fighter B, referee) is unreliable when both kits and the referee's uniform are mostly black. A cage mask (people must stand on the canvas) and a motion filter for walk-outs and breaks have been added since the pilot; see [DECISIONS.md](DECISIONS.md).
 - **Throughput.** 1.15 minutes of footage per minute of a Kaggle T4 x2 session, after an FP16 and two-GPU speed pass (0.42 before). Outputs before and after agree: 99.4% of boxes matched with median IoU 0.997, keypoints 0.24 px apart at the median. Details in [DECISIONS.md](DECISIONS.md).

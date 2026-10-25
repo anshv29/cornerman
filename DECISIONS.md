@@ -46,6 +46,28 @@ The Kaggle CLI runs through `uvx --from kaggle==2.2.4`, so it is pinned and need
 ## 2026-10-17: Adult bouts only
 We skip any bout that looks like it involves a minor: youth, junior and cadet divisions, and anything with "kids", "children", "U16"/"U18"-style age groups or an explicit age under 18 in the title or description. Junior is skipped even though some federations use it for 18 to 20 year olds, because we can't tell from a title which definition applies. On top of that, any fighter who appears in a skipped bout is dropped from the whole dataset, including their adult bouts, since we can't be sure when they turned 18. The filter lives in `cornerman.collect` and has its own tests. It runs before anything is downloaded, so video of a skipped bout never touches the laptop or Kaggle.
 
+## 2026-10-25: Adult bouts, part 3: check the unverifiable fights against IMMAF's results
+**Ansh's call.** Fights whose division can't be read on screen go on hold: kept on disk, left out of all modeling, silver sets, reports and GPU batches (`contracts/hold.py`, `data/age_hold.csv`, local). Each is checked against IMMAF's published results. Confirmed adult comes back; junior or still unclear is deleted.
+
+**Terms.** immaf.org has no terms-of-use page (only a privacy policy and a copyright line), and its robots.txt allows all crawlers with a 10-second crawl delay. We fetched 21 public results pages once, 10 seconds apart, kept them outside the repo (they hold names), and stored only per-fight verdicts.
+
+**Method** (`experiments/age_results_check.py`). Results pages list brackets per weight class; junior brackets say "Jr" ("Male Jr Flyweight 56.7 kg"). Two things to watch: IMMAF ran junior championships alongside the adult ones (and the 2021 European Open was a combined senior and junior event), and its "2019 Youth World Championships Schedule/Results" page actually covers the combined 2019 World Championships (seniors and juniors). So each bout's heading decides, not the page. A held fight is:
+- adult if both fighters are in the same adult bracket or bout in a page from that year or the year before (the "2021" World Championships were held in January 2022), and neither fighter is in a junior or youth section in that window;
+- junior if both are together in a junior or youth section;
+- unclear otherwise.
+
+**Validation first**, on fights whose division the score bar did show: none of the 3 checkable junior bouts came out adult; most senior bouts from late 2022 on came out unclear only because those results aren't on the pages fetched. So the check leans to "unclear", which here means deletion.
+
+**Outcome on the 26.** 18 adult (back in), 3 junior, 5 unclear. Junior verdicts go through the fighter rule, which removed 3 more bouts: all of one fighter who fought in the 2019 Junior European Championships, including three 2023 senior bouts and the pilot fight ft_97394d8b1a. Unclear verdicts drop only that bout (`age not confirmed`), not the fighters' other bouts: it is no evidence of a minor, and Ansh asked only for the unclear fights to go. One fighter's other bout stays because of this; its own score bar shows SENIORS. 11 fights deleted in all (`cornerman purge-fights`, then `dvc add` and `dvc gc`). Now 53 fights, 88 fighters, 15 with 2+ fights; nothing on hold.
+
+**Collection keeps it.** The verdicts are in `data/meta/age_verdicts.csv` (local) and are read on every rebuild. Any new fight whose score bar shows no division and has no adult verdict goes on hold automatically.
+
+**A probable false positive in part 2.** ft_2b1a88cfe9 was removed because the OCR read "2019 IMMAF EUROPEAN AND JUNIOR EUROPEAN OPEN CHAMPIONSHIPS", the event banner, not a division line; the results put both fighters in the adult 2019 European Middleweight bracket. The other 9 read "JUNIORS / MEN / ...". The event did have a junior division, so the removal follows the rule, but the bout itself was most likely adult. It can be restored with a new download and a GPU run if wanted.
+
+**Identity numbers change again.** Without these fights the held-out identity test is 9 of 14 right (64%), unflagged at 0.4: 7 of 11, AUC 0.80; dev 17 of 23. With 14 fights these numbers move a lot with each fight, so they are weak evidence either way.
+
+**Kaggle.** The private perception kernel (outputs from every batch, including removed fights) was deleted with all its versions. The VLM kernel and the clips dataset go after the running swap job is imported, since deleting them would kill it. The smoke kernel only holds a test result and stays.
+
 ## 2026-10-25: Adult bouts, part 2: read the score bar (10 junior bouts had slipped through)
 **What happened.** The agent's spot check of silver clips showed "JUNIORS / MEN / M: BANTAMWEIGHT" on the score bar of clips from fights we had kept. IMMAF runs junior divisions inside its main World and European Championships, and a title like "A vs. B | FULL FIGHT | 2025 IMMAF World Championships" doesn't say which division the bout is in. The filter read only titles and descriptions, so these passed.
 
@@ -60,7 +82,7 @@ OCR is RapidOCR 3.10.0 (Apache 2.0; PP-OCR detection and recognition models, ONN
 
 **Identity numbers change.** 6 of the 24 held-out identity test fights and 4 of the 30 dev fights were junior bouts. Their rows are removed from `experiments/identity_v3_*_verdicts.csv`. Held-out test, same method and threshold: 13 of 18 right (72%, was 18 of 24); unflagged at 0.4: 10 of 14 right; confidence AUC 0.77 (was 0.83). Dev: 19 of 26 (was 21 of 30). The earlier numbers in the identity entries below are kept as they were reported, with this correction.
 
-**Not settled: 26 fights whose graphics never show a division.** Mostly 2015 to 2021 events, where the score bar shows only the clock and round. Their titles, descriptions and tags don't mention a junior division either, so there's no evidence they are junior, but none that they aren't. They are kept for now; Ansh decides.
+**26 fights whose graphics never show a division** (mostly 2015 to 2021 events, where the score bar shows only the clock and round) were put on hold and then checked against IMMAF's results; see part 3.
 
 ## 2026-10-17: Perception models (first pick, to be checked in the pilot)
 Constraints: fits a Kaggle T4 (16 GB), installs with pip, open weights, and a license that's fine for a public repo. That last point rules out Ultralytics YOLO and BoxMOT (both AGPL-3.0) and Sapiens (CC BY-NC).

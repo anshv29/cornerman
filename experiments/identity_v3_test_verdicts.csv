@@ -1,12 +1,8 @@
 fight_id,variant,verdict,confidence,flagged,note
-ft_bc3b7859fe,b,right,0.475,0,
 ft_d5b8347305,b,wrong,0.418,0,one fighter in both rows
 ft_c220061bc5,b,right,0.554,0,
 ft_e6f24379b4,b,right,0.374,1,
-ft_d6a99e9a7f,b,right,0.268,1,10 of 12 red; many post-fight crops of the right person
-ft_ab1b0dc4ab,b,right,0.549,0,
 ft_c21ad7a162,b,right,0.758,0,
-ft_f5e8013ec6,b,right,0.594,0,
 ft_887a77a670,b,wrong,0.471,0,ground mixing; red row about 7 of 12
 ft_d7ee55fc3d,b,wrong,0.369,1,both rows mix the two fighters and the referee
 ft_ac7ca80fd5,b,right,0.577,0,
