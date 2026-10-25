@@ -32,6 +32,12 @@ gpu = [
     "torchvision>=0.21",
     "accelerate==1.15.0",
 ]
+# On-screen check during collection (laptop only): OCR of the score bar, so a
+# junior bout filed under an adult event name is caught. Not needed on Kaggle.
+collect = [
+    "rapidocr==3.10.0",
+    "onnxruntime==1.31.0",
+]
 
 [project.scripts]
 cornerman = "cornerman.pipeline.cli:main"

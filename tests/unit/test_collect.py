@@ -136,3 +136,27 @@ def test_fight_id_is_stable_and_hides_the_video() -> None:
     assert fight_id("test", "abc") == fight_id("test", "abc")
     assert "abc" not in fight_id("test", "abc")
     assert fight_id("test", "abc") != fight_id("other", "abc")
+
+
+def test_junior_bout_under_an_adult_title_is_caught_by_tags_or_screen() -> None:
+    """IMMAF files junior bouts under adult event names; only tags or the score bar say so."""
+    videos = [
+        video("v1", "Alex Doe", "Sam Roe", screen="JUNIORS / MEN / M: BANTAMWEIGHT 61.2 KG"),
+        video("v2", "Kim Poe", "Lee Moe", tags="MMA\n2026 Youth World Championships"),
+        video("v3", "Alex Doe", "Ray Coe", event="2024 Test Cup"),  # same fighter as v1
+        video("v4", "Ann Hoe", "Bo Loe", screen="SENIORS / WOMEN / F: FLYWEIGHT"),
+    ]
+    t = build_tables(videos, min_height=480)
+    assert t.fights["video_id"].tolist() == ["v4"]
+    reasons = dict(zip(t.skipped["video_id"], t.skipped["reason"], strict=True))
+    assert "on screen: word: juniors" in reasons["v1"]
+    assert "tags: word: youth" in reasons["v2"]
+    assert reasons["v3"] == "a fighter also appears in a bout that might involve a minor"
+
+
+def test_screen_text_joins_frames() -> None:
+    from cornerman.collect.screen import screen_text
+
+    res: dict[str, object] = {"frames": 2, "texts": [["A", "B"], ["JUNIORS / MEN"]]}
+    assert screen_text(res) == "A B\nJUNIORS / MEN"
+    assert screen_text({"frames": 0, "texts": []}) == ""

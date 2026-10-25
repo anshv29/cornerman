@@ -9,6 +9,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import cast
 
 from cornerman.collect.registry import VideoMeta
 
@@ -59,4 +60,14 @@ def to_meta(info: dict[str, object], source: str) -> VideoMeta:
         upload_date=str(info.get("upload_date") or ""),
         height=int(str(info.get("height") or 0)),
         duration_s=float(str(info.get("duration") or 0)),
+        tags=_tags(info),
     )
+
+
+def _tags(info: dict[str, object]) -> str:
+    tags = info.get("tags")
+    words = [str(t) for t in cast(list[object], tags)] if isinstance(tags, list) else []
+    for key in ("playlist_title", "playlist"):
+        if info.get(key):
+            words.append(str(info[key]))
+    return "\n".join(words)

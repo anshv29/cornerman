@@ -2,8 +2,9 @@
 
 Order of filters, each logged with a reason in the skipped table:
 1. title doesn't parse as a single fight;
-2. might involve a minor (see adult.py). Every bout of any fighter seen in
-   such a video is dropped too. This runs before the resolution check so a
+2. might involve a minor (see adult.py), from the title, description, tags
+   and playlist, and the on-screen graphics (see screen.py). Every bout of any
+   fighter seen in such a video is dropped too. This runs before the resolution check so a
    low-resolution youth video still marks its fighters;
 3. below the minimum resolution;
 4. duplicates: same video, or the same pairing at the same event and meeting.
@@ -34,6 +35,10 @@ class VideoMeta:
     upload_date: str
     height: int
     duration_s: float
+    tags: str = ""
+    """YouTube tags and playlist title, which can name the event ("Youth World Championships")."""
+    screen: str = ""
+    """OCR text of the score bar from a few frames (screen.py); empty if not read."""
 
 
 @dataclass(frozen=True)
@@ -92,7 +97,11 @@ def build_tables(
         if parsed is None:
             skip(v, "title is not a single fight")
             continue
-        reasons = minor_reasons(f"{v.title}\n{v.description}")
+        reasons = [
+            *minor_reasons(f"{v.title}\n{v.description}"),
+            *(f"tags: {r}" for r in minor_reasons(v.tags)),
+            *(f"on screen: {r}" for r in minor_reasons(v.screen)),
+        ]
         if reasons:
             minor_keys.update({name_key(parsed.fighter_a), name_key(parsed.fighter_b)})
             skip(v, "might involve a minor: " + ", ".join(reasons))
