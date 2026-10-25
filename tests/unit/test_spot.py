@@ -19,8 +19,8 @@ def test_sample_caps_each_tier_and_group() -> None:
         {
             "clip_id": [f"c{i}" for i in range(3 * n)],
             "stratum": "close",
-            "red_direct": ["ground-top"] * n + ["ground-bottom"] * n + ["standing-neutral"] * n,
-            "blue_direct": ["ground-bottom"] * n + ["ground-top"] * n + ["standing-neutral"] * n,
+            "red_final": ["ground-top"] * n + ["ground-bottom"] * n + ["standing-neutral"] * n,
+            "blue_final": ["ground-bottom"] * n + ["ground-top"] * n + ["standing-neutral"] * n,
             "rules": None,
             "silver": [True] * (2 * n) + [False] * n,
             "prompts_only": [False] * (2 * n) + [True] * n,

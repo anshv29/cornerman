@@ -31,15 +31,13 @@ def sample(w: pd.DataFrame, per_group: int, seed: int = 0) -> pd.DataFrame:
     for tier, t in tiers:
         t = t.assign(
             tier=tier,
-            group=[
-                pair_group(r, b) for r, b in zip(t["red_direct"], t["blue_direct"], strict=True)
-            ],
+            group=[pair_group(r, b) for r, b in zip(t["red_final"], t["blue_final"], strict=True)],
         )
         for _, g in t.groupby("group"):
             out.append(g.sample(n=min(per_group, len(g)), random_state=seed))
     if not out:
         return pd.DataFrame()
-    cols = ["tier", "group", "clip_id", "stratum", "red_direct", "blue_direct", "rules"]
+    cols = ["tier", "group", "clip_id", "stratum", "red_final", "blue_final", "rules"]
     return pd.concat(out, ignore_index=True)[cols]
 
 

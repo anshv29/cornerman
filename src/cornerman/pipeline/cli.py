@@ -145,7 +145,9 @@ def main(argv: list[str] | None = None) -> int:
     vlm.add_parser("import", help="pull the labels and delete the clips dataset")
     sub.add_parser("gold-rules", help="labeller A on the sampled clips")
     p_silver = sub.add_parser("gold-silver", help="combine labellers into the silver set")
-    p_silver.add_argument("--labels", type=Path, required=True, help="a labels_*.jsonl run")
+    p_silver.add_argument(
+        "--labels", type=Path, nargs="+", required=True, help="labels_*.jsonl runs, combined"
+    )
     sub.add_parser("gold-vicos", help="measure the rules labeller on ViCoS jiu-jitsu (local)")
     args = parser.parse_args(argv)
 
@@ -171,11 +173,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "gold-rules":
         return _gold_rules(Path("data/gold/clips.parquet"), Path("data/derived"))
     if args.command == "gold-silver":
-        from cornerman.gold.silver import by_state, report, silver
+        from cornerman.gold.silver import by_state, report, silver, swap_report
 
         gold = Path("data/gold")
         w = silver(
-            pd.read_json(args.labels, lines=True),
+            pd.concat([pd.read_json(p, lines=True) for p in args.labels], ignore_index=True),
             pd.read_parquet(gold / "rules.parquet"),
             pd.read_parquet(gold / "clips.parquet"),
         )
@@ -188,6 +190,8 @@ def main(argv: list[str] | None = None) -> int:
             f"{len(low)} lower-tier clips (prompts agree, rules abstain; not silver), "
             f"from {low['fight_id'].nunique()} fights"
         )
+        print("position bias: the same question with red or blue named first")
+        print(swap_report(w).to_string())
         print("per state, in fighter-clips (agreement between labellers, not accuracy):")
         print(by_state(w).to_string())
         return 0

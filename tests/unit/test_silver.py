@@ -53,3 +53,38 @@ def test_prompts_only_tier_is_kept_apart() -> None:
     assert w["prompts_only"].to_dict() == {"a": False, "b": True, "c": False}
     s = by_state(w.reset_index()).loc["m"]
     assert s.at["ground-top", "silver"] == 1 and s.at["ground-top", "prompts_only"] == 1
+
+
+def _row(clip: str, prompt: str, red: str | None, blue: str | None) -> dict[str, object]:
+    live = "yes" if red else None
+    return {"model": "m", "clip_id": clip, "prompt": prompt, "live": live, "red": red, "blue": blue}
+
+
+def test_clinch_control_needs_the_swapped_prompt_and_ignores_direct() -> None:
+    from cornerman.gold.silver import swap_report
+
+    ctl, ctd = "clinch-controlling", "clinch-controlled"
+    rows = [
+        # a: direct says red controls, both questions runs say blue: blue wins.
+        _row("a", "direct", ctl, ctd), _row("a", "questions", ctd, ctl),
+        _row("a", "questions_swapped", ctd, ctl),
+        # b: the swap flips the controller: not trusted.
+        _row("b", "direct", ctl, ctd), _row("b", "questions", ctl, ctd),
+        _row("b", "questions_swapped", ctd, ctl),
+        # c: no swapped answer.
+        _row("c", "direct", ctl, ctd), _row("c", "questions", ctl, ctd),
+        # d: direct doesn't see a clinch at all.
+        _row("d", "direct", "standing-neutral", "standing-neutral"),
+        _row("d", "questions", ctl, ctd), _row("d", "questions_swapped", ctl, ctd),
+    ]  # fmt: skip
+    labels = pd.DataFrame(rows)
+    rules = pd.DataFrame({"clip_id": list("abcd"), "rules": "clinch"})
+    clips = pd.DataFrame({"clip_id": list("abcd"), "fight_id": "f", "stratum": "close"})
+    w = silver(labels, rules, clips).set_index("clip_id")
+    assert w["silver"].to_dict() == {"a": True, "b": False, "c": False, "d": False}
+    assert (w.loc["a", "red_final"], w.loc["a", "blue_final"]) == (ctd, ctl)
+    bias = swap_report(w.reset_index())
+    key = ("m", "clinch control")
+    got = {k: bias.at[key, k] for k in ("clips", "same", "red_first", "red_swapped")}
+    # a, b and d have both runs: a and d keep their controller, b flips.
+    assert got == {"clips": 3, "same": 0.67, "red_first": 0.67, "red_swapped": 0.33}
