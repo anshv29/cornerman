@@ -2,10 +2,7 @@
 
 ## Needs Ansh
 
-1. **26 fights whose on-screen graphics never show a division** (mostly 2015 to 2021). Titles, descriptions and tags don't say junior either. Kept for now. Keep them, or drop them to be safe? List: `data/meta/screen_check.csv` (rows with no reasons and senior = False).
-2. **Kaggle kernel outputs from before the junior removal.** The private `cornerman-perception` and `cornerman-vlm` kernels still hold output files from earlier runs that include derived data (poses, labels) for some of the 10 removed junior fights. Removing them means deleting those kernels (all versions); the code is in git, so nothing is lost but run history. Say yes and the agent deletes and recreates them.
-
-3. **A free DVC remote (not blocking).** Ansh said on 2026-10-17 this can wait. Recommended: DagsHub (free, no card). Sign up at https://dagshub.com with GitHub, connect the `anshv29/cornerman` repo, then share the DVC remote URL and an access token with the agent, for example by putting the token in a gitignored `.env` file. Until then the DVC cache lives only on this laptop.
+1. **A free DVC remote (not blocking).** Ansh said on 2026-10-17 this can wait. Recommended: DagsHub (free, no card). Sign up at https://dagshub.com with GitHub, connect the `anshv29/cornerman` repo, then share the DVC remote URL and an access token with the agent, for example by putting the token in a gitignored `.env` file. Until then the DVC cache lives only on this laptop.
 
 ## Kaggle setup (done 2026-10-17)
 - Account `anshvaishnav29`, phone verified, so notebooks get GPU and internet.
@@ -62,6 +59,12 @@ Free Kaggle GPU used so far: about 23 hours in total. On 2026-10-19 and 10-20: a
 - Fixes: Kaggle downloads retry when the connection drops; import no longer re-copies an older batch or wipes stages run on the laptop.
 - Docs: LEARNING.md section 20.
 
+### Adult bouts, second and third passes (2026-10-25)
+- The spot check showed "JUNIORS" on some score bars. The adult filter now also reads tags, playlist names and the on-screen score bar (OCR), and runs a results check for fights whose screen shows no division. 10 junior bouts removed first; then 26 fights went on hold and were checked against IMMAF's results: 18 adult (back), 11 removed (3 junior, 3 more through the fighter rule, 5 unclear). Now **53 fights, 88 fighters, 15 with 2+ fights**. Details: DECISIONS.md, parts 2 and 3.
+- One part-2 removal (ft_2b1a88cfe9) was triggered by the event banner, and the results show it as an adult bout. Restorable with a new download and GPU run.
+- Identity held-out test on what's left: 9 of 14 (64%), AUC 0.80 (was 18 of 24 with the junior bouts).
+- Kaggle: perception kernel deleted with all versions.
+
 ### Phase 2, silver set first build (2026-10-19 to 10-20)
 - Clips (`gold-clips`, `gold-cut`): 400 clips of 3 s from the 39 usable fights, 100 per stratum (apart, close, ground, merged), clips with both fighters boxed first. Cut on the laptop from a re-download checked against the processed video, red corner in a red box and blue in a blue box, 10 fps, 480 px. Local only; on Kaggle only as a private dataset deleted after each job.
 - ViCoS jiu-jitsu (`gold/vicos.py`): annotations only (keypoints and hand-labelled positions, pinned by hash, under `data/external/`, never committed), mapped to our ground states after checking from the keypoints which athlete each label names.
@@ -88,6 +91,7 @@ Free Kaggle GPU used so far: about 23 hours in total. On 2026-10-19 and 10-20: a
 
 ## Next
 1. **In progress (2026-10-25): clinch control swap test.** The direct prompt called red the controller in all 114 clinches (position bias), so its clinch-control labels are not used. The questions prompt with blue named first (`questions_swapped`) is running on the 698 close and merged clips: kernel version 8, pushed 19:23 UTC, free quota, about 3 h. When it finishes: `cornerman gold-vlm import` (saves `labels_006.jsonl`, deletes the clips dataset), then `cornerman gold-silver --labels data/gold/vlm/labels_005.jsonl data/gold/vlm/labels_006.jsonl`. Clinch control is kept only where questions and questions_swapped name the same controller.
+   After the import: delete the `cornerman-vlm` kernel (all versions) and the `cornerman-clips` dataset (all versions), as Ansh asked on 2026-10-25, then strip any labels of removed fights (`cornerman purge-fights` lists in `data/meta/removed_*.txt`).
    Then the agent-judged spot check (`gold/spot.py`, up to 5 clips per state pair and tier), reported as agent-judged and not blind, with the lower tier (prompts agree, rules abstain) kept apart from silver.
 2. Report silver coverage and spot-check precision per state, not only overall (clinch and ground are the thin ones).
 3. Phase 3 can then start: per-state accuracy of the rules labeller against silver, and Dawid-Skene over labellers A and B.
