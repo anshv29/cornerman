@@ -149,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
         "--labels", type=Path, nargs="+", required=True, help="labels_*.jsonl runs, combined"
     )
     sub.add_parser("gold-vicos", help="measure the rules labeller on ViCoS jiu-jitsu (local)")
+    p_purge = sub.add_parser("purge-fights", help="delete every local trace of some fights")
+    p_purge.add_argument("ids", type=Path, help="a text file with one fight_id per line")
     args = parser.parse_args(argv)
 
     if args.command == "identity-probe":
@@ -205,6 +207,13 @@ def main(argv: list[str] | None = None) -> int:
 
         for k, v in rules_report(rules_on_frames(load())).items():
             print(f"{k:<24} {v:.3f}")
+        return 0
+    if args.command == "purge-fights":
+        from cornerman.pipeline.purge import purge
+
+        ids = set(args.ids.read_text().split())
+        print(f"purging {len(ids)} fights:", purge(ids))
+        print("now run: dvc add data/derived && dvc gc -w -f")
         return 0
     if args.command == "gold-vlm":
         return _gold_vlm(args)
