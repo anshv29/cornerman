@@ -122,6 +122,10 @@ class CollectConfig(BaseModel):
     fights_csv: Path = Path("data/fights.csv")
     fighters_csv: Path = Path("data/fighters.csv")
     skipped_csv: Path = Path("data/skipped.csv")
+    age_verdicts_csv: Path = Path("data/meta/age_verdicts.csv")
+    """Results-check verdicts per video (experiments/age_results_check.py)."""
+    hold_csv: Path = Path("data/age_hold.csv")
+    """Fights whose age isn't confirmed yet (contracts.hold)."""
 
 
 class Settings(BaseSettings):

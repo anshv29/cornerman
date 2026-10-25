@@ -160,3 +160,33 @@ def test_screen_text_joins_frames() -> None:
     res: dict[str, object] = {"frames": 2, "texts": [["A", "B"], ["JUNIORS / MEN"]]}
     assert screen_text(res) == "A B\nJUNIORS / MEN"
     assert screen_text({"frames": 0, "texts": []}) == ""
+
+
+def test_results_verdicts_junior_drops_fighters_unclear_drops_only_the_bout() -> None:
+    videos = [
+        video("v1", "Alex Doe", "Sam Roe"),
+        video("v2", "Kim Poe", "Lee Moe"),
+        video("v3", "Ann Hoe", "Bo Loe"),
+        video("v4", "Alex Doe", "Ray Coe", event="2024 Test Cup"),  # same fighter as v1
+        video("v5", "Kim Poe", "Jo Zoe", event="2024 Test Cup"),  # same fighter as v2
+    ]
+    verdicts = {"v1": "junior", "v2": "unclear", "v3": "adult"}
+    t = build_tables(videos, min_height=480, age_verdicts=verdicts)
+    assert sorted(t.fights["video_id"]) == ["v3", "v5"]
+    reasons = dict(zip(t.skipped["video_id"], t.skipped["reason"], strict=True))
+    assert "results check: junior" in reasons["v1"]
+    assert reasons["v2"] == "age not confirmed: results check unclear"
+    assert "a fighter also appears" in reasons["v4"]
+
+
+def test_fights_without_a_division_on_screen_go_on_hold_until_cleared() -> None:
+    from cornerman.collect.run import age_hold
+
+    videos = [
+        video("v1", "A One", "B One", screen="SENIORS / MEN / M: FLYWEIGHT"),
+        video("v2", "A Two", "B Two", screen="01:58 ROUND 1"),  # no division shown
+        video("v3", "A Three", "B Three", screen="02:10 RD2"),  # none, but cleared
+    ]
+    t = build_tables(videos, min_height=480)
+    held = age_hold(t.fights, videos, {"v3": "adult"})
+    assert held["fight_id"].tolist() == [fight_id("test", "v2")]

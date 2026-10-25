@@ -3,9 +3,12 @@
 Order of filters, each logged with a reason in the skipped table:
 1. title doesn't parse as a single fight;
 2. might involve a minor (see adult.py), from the title, description, tags
-   and playlist, and the on-screen graphics (see screen.py). Every bout of any
-   fighter seen in such a video is dropped too. This runs before the resolution check so a
-   low-resolution youth video still marks its fighters;
+   and playlist, the on-screen graphics (see screen.py), or a results check
+   that found the bout junior (age verdicts). Every bout of any fighter seen
+   in such a video is dropped too. This runs before the resolution check so a
+   low-resolution youth video still marks its fighters. A bout the results
+   check couldn't confirm as adult ("unclear") is dropped on its own, without
+   the fighter rule (Ansh, 2026-10-25): it is no evidence of a minor;
 3. below the minimum resolution;
 4. duplicates: same video, or the same pairing at the same event and meeting.
 
@@ -16,7 +19,7 @@ only appear in the local CSVs, never in anything that leaves the laptop.
 """
 
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 import pandas as pd
@@ -82,7 +85,11 @@ def build_tables(
     videos: Iterable[VideoMeta],
     min_height: int,
     existing_fighters: pd.DataFrame | None = None,
+    age_verdicts: Mapping[str, str] | None = None,
 ) -> Tables:
+    """`age_verdicts` maps video_id to a results-check verdict (adult, junior or
+    unclear); junior counts as might-involve-a-minor, unclear drops only that bout."""
+    verdicts = age_verdicts or {}
     skipped: list[dict[str, object]] = []
     rows: list[dict[str, object]] = []
     minor_keys: set[str] = set()
@@ -101,7 +108,11 @@ def build_tables(
             *minor_reasons(f"{v.title}\n{v.description}"),
             *(f"tags: {r}" for r in minor_reasons(v.tags)),
             *(f"on screen: {r}" for r in minor_reasons(v.screen)),
+            *(["results check: junior"] if verdicts.get(v.video_id) == "junior" else []),
         ]
+        if not reasons and verdicts.get(v.video_id) == "unclear":
+            skip(v, "age not confirmed: results check unclear")
+            continue
         if reasons:
             minor_keys.update({name_key(parsed.fighter_a), name_key(parsed.fighter_b)})
             skip(v, "might involve a minor: " + ", ".join(reasons))
