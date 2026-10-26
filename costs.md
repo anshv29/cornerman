@@ -17,5 +17,8 @@ Cap: $50 USD total for GPU time and hosted APIs. Ask Ansh before spending anythi
 | 2026-10-20 | VLM full run, 400 clips with both prompts, about 3.5 hours of free quota | Kaggle | 0.00 | 0.00 |
 | 2026-10-25 | VLM silver-set run, 1,000 clips with both prompts, about 8.7 hours of free quota | Kaggle | 0.00 | 0.00 |
 | 2026-10-25 | VLM clinch rerun with red and blue swapped, 698 close and merged clips, about 3.4 hours of free quota | Kaggle | 0.00 | 0.00 |
+| 2026-10-26 | Tangled-pose test (three methods on 96 frames), about 0.3 hours of free T4 x2 quota | Kaggle | 0.00 | 0.00 |
+| 2026-10-26 | Masks stage smoke run on 2 fights, about 0.2 hours of free T4 x2 quota | Kaggle | 0.00 | 0.00 |
+| 2026-10-26 | Arena stage (hull and clock OCR), smoke run and batch 1 of 17 fights, about 9.5 hours of free CPU sessions (no GPU quota) | Kaggle | 0.00 | 0.00 |
 
 Current total: **$0.00**
