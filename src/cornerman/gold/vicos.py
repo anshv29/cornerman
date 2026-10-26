@@ -198,11 +198,10 @@ class _RangeFile(io.RawIOBase):
 def sample_frames(frames: pd.DataFrame, per_position: int, seed: int) -> pd.DataFrame:
     """Up to `per_position` frames of each position with both athletes' poses, seeded."""
     both = frames[frames["pose1"].notna() & frames["pose2"].notna()]
-    return (
-        both.groupby("position", group_keys=False)
-        .apply(lambda g: g.sample(min(per_position, len(g)), random_state=seed))  # pyright: ignore[reportUnknownLambdaType, reportUnknownMemberType, reportUnknownArgumentType]
-        .reset_index(drop=True)
-    )
+    parts = [
+        g.sample(min(per_position, len(g)), random_state=seed) for _, g in both.groupby("position")
+    ]
+    return pd.concat(parts).reset_index(drop=True)
 
 
 def fetch_images(images: list[str], dest: Path, url: str = IMAGES_URL) -> list[Path]:
