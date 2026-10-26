@@ -406,6 +406,19 @@ A smoke test showed YouTube doesn't block downloads from Kaggle, so the job down
 2. *The confidence score had AUC 0.83 but the flag barely helped. How can both be true?* AUC measures ranking over all thresholds; the flag uses one threshold. The wrong fights all scored low, but in a band (0.32 to 0.49) above the cut-off picked on dev. The dev set had only 9 wrong fights, too few to place a threshold precisely.
 3. *Why not just move the threshold to 0.5 and report 13 of 13?* That threshold was picked after seeing the test, so 13 of 13 measures the choice, not the method. The honest numbers are the frozen ones (18 of 24; 15 of 19 unflagged). A new threshold needs a new clean test, or at least a pooled estimate labelled as optimistic.
 
+### Identity per shot instead of per fight (2026-10-26)
+
+**Problem.** The confidence score flags a whole fight when identity is doubtful, and a flagged fight is left out of anything per fighter. But identity usually goes wrong in places: a clinch or a ground scramble where the tracker swaps the fighters, while the standing exchanges around it are fine. Throwing away the whole fight wastes those clean minutes, and with few repeat fighters every minute matters.
+
+**How.** Score each camera shot on its own. A tracklet never crosses a cut, so an identity error lives inside shots. Each shot gets the same checks as a fight (one corner on two boxes, share of crops given a corner, whether red and blue are the closest pair), plus one fight-level term (are the two people picked fighters at all), and one extra condition: both fighters must be boxed together in at least 30% of the shot. That last one came from looking: shots where one fighter was barely tracked passed the other checks because there was little to check, and that is where the wrong ones hid.
+
+**How it was checked.** Twice by eye, blind to the rule's decision: shots were shuffled and drawn as rows of crops with a number only, verdicts were written down, and only then was the key opened. Round 1 was used to change the rule, so round 2, on fresh shots, is the number to quote: 26 of 28 judgeable kept shots right (93%). It gains 15% more fighting time and takes repeat fighters with usable data from 6 to 14.
+
+**Interview questions.**
+1. *Why not just lower the fight-level threshold?* A lower threshold lets in whole fights with their bad stretches too. Per-shot scoring keeps the good stretches of a doubtful fight and drops the bad ones, so it gains data without lowering precision.
+2. *Why did you need a second sample?* The first one was used to choose the extra condition. A number measured on the data you tuned on is optimistic, so the reported precision comes from shots drawn after the rule was fixed and committed.
+3. *What does "can't judge" do to the number?* About a fifth of the round-1 shots had too few clean crops, mostly tangles. The precision is over judgeable shots, so it says nothing about tangled ones. Rule v2 mostly drops those, which is why only 2 of 30 kept shots were unjudgeable in round 2.
+
 ## 21. The silver set: labels from labellers that agree
 
 **Problem.** Every perception number needs something to compare against (hard rule 4), and nobody is labelling clips by hand. The plan is a "silver" set: clips where several independent automatic labellers agree. Agreement isn't truth, but three labellers that fail in different ways rarely make the same mistake.

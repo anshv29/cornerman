@@ -65,6 +65,13 @@ Free Kaggle GPU used so far: about 35 hours in total. On 2026-10-19 and 10-20: a
 - Identity held-out test on what's left: 9 of 14 (64%), AUC 0.80 (was 18 of 24 with the junior bouts).
 - Kaggle: perception kernel deleted with all versions.
 
+### Identity per shot (2026-10-26)
+- New laptop stage `identity_segments`: each shot's fighting time gets the fight's label-free checks, plus "both fighters boxed in at least 30% of the shot". `usable_frames` gives unflagged fights whole and the usable shots of flagged ones. Run on all 53 fights (about 20 s of CPU).
+- Checked blind by eye on shots from flagged fights. Round 1 (dev) led to the 30% condition; round 2 (test, 40 fresh shots): **26 of 28 judgeable kept shots right (93%)**. Shots the new condition drops: 0 of 3 judgeable right.
+- **Gain: +26.6 min of fighting (181.7 to 208.3, +15%) from 19 flagged fights, 9 of them a minute or more. Fighters with usable data 54 to 83; with 2+ usable fights 6 to 14.**
+- Found on the way: minute totals were 25% too high for the 34 fights sampled at 0.08 s (usable total was 181.7 min, not 209.7). The report now uses real frame times.
+- Details: DECISIONS.md "Identity confidence per shot", LEARNING.md section 20.
+
 ### Phase 2, silver set second build (2026-10-25)
 - Clinch control by the swap test: the questions prompt rerun with blue named first on the 698 close and merged clips; a clinch label is kept only if it names the same controller both ways. The direct prompt's clinch-control answers are not used (it said red in all 114 clinches).
 - **Silver: 137 of 780 clips, from 30 fights.** Neutral 97, clinch 26, ground 13, cage pressure 1. Per stratum: apart 65%, close 14%, ground 19%, merged 9%.
@@ -91,6 +98,8 @@ Free Kaggle GPU used so far: about 35 hours in total. On 2026-10-19 and 10-20: a
 - **The lower tier's directions are unreliable** (2 of 6 wrong in the spot check). Use only its state family, and only as a rough check on the hard strata.
 - **Kaggle CLI quirks:** `kaggle datasets create` and `datasets version` sometimes upload everything and then fail to parse the reply ("Expecting value"). Since 2026-10-24 `upload_dataset` carries on after that one error and still runs the ready and privacy checks. Once, a kernel push reported success but Kaggle kept the old version, so the "complete" status belonged to the previous run. After a push, check that the status is QUEUED or RUNNING.
 - **Cage mask misses**: a person outside the cage but close to the camera (a cornerman in a cageside shot) overlaps the canvas in the image and is kept; in one fight, cageside cameras shooting through the fence let several officials through. A white or grey canvas (other promotions) falls back to plain colour distance, untested.
+- **Per-shot identity leans standing.** Tangled shots rarely have both fighters boxed, so the shots gained from flagged fights are mostly standing exchanges; the 2 wrong kept shots in the check were clinch or ground. Count clinch and ground separately in anything per fighter.
+- **Fighting filter lets in some walk-outs and celebrations** (fighters with flags, seen in the per-shot check). Not identity errors, but not fighting either.
 - **Fighting filter** is tuned on 2 fights (threshold 0.2 box heights per second gives 9.3 and 9.5 minutes). It should be checked on the 50 against each fight's round count, once results are scraped.
 - **Throughput:** about 1.37 s of wall time per second of video per GPU; two GPUs run in parallel. Ansh's call: enough for the 74 IMMAF fights; no more speed work for now.
 - **YouTube may block the laptop too** if batches get large. One transient download failure happened; downloads now retry once.
@@ -99,10 +108,10 @@ Free Kaggle GPU used so far: about 35 hours in total. On 2026-10-19 and 10-20: a
 - The first `pre-commit` run on a new machine downloads Go to build gitleaks, which takes a minute or two.
 
 ## Next
-1. **Identity confidence per segment, not per fight** (Ansh, 2026-10-25: next priority after the silver report). Laptop only, no GPU: the four label-free checks per shot or per stretch of fighting time, so the clean parts of flagged fights become usable. The threshold needs its own check.
-2. Phase 3: per-state accuracy of the rules labeller against silver, and Dawid-Skene over labellers A and B.
+1. Phase 3: per-state accuracy of the rules labeller against silver, and Dawid-Skene over labellers A and B.
    **Cage pressure is evaluated with fence-distance geometry, not the VLM** (Ansh, 2026-10-25). The VLM's cage-pressure answer flips with the colour order 46% of the time, and silver has only 1 cage clip. Use the measured distance from each fighter's feet to the fence (SPEC Layer 1 step 5: cage mask and mat homography) at striking range to label pressuring and pressured, and drop the VLM as a cage labeller.
-3. MLflow comes later, before the first real model fit (Phase 4).
+   Anything per fighter uses `usable_frames` (unflagged fights whole, plus the usable shots of flagged ones), not `usable_fights`.
+2. MLflow comes later, before the first real model fit (Phase 4).
 
 **For the next GPU batch:** ft_2b1a88cfe9 is back in `fights.csv` (IMMAF's results put it in the adult 2019 European Middleweight bracket; its "junior" hit was the event banner). Not processed yet. Ansh: process it with the next batch, not on its own. `select_fights` picks it up automatically.
 

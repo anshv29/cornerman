@@ -1,0 +1,41 @@
+n,verdict,note
+1,right,one red crop looks like the blue fighter
+2,cant_judge,ground tangle; every crop holds both fighters
+3,cant_judge,1 red crop and no blue
+4,right,borderline: one red crop is a cornerman; one blue crop a ground tangle
+5,right,
+6,right,one blue crop is the referee
+7,right,
+8,cant_judge,no red crops; blue row right
+9,right,
+10,right,one blue crop is the red fighter
+11,cant_judge,2 red crops; blue row borderline
+12,right,
+13,wrong,1 red crop; 2 of 3 blue crops are the red fighter
+14,cant_judge,2 red crops; blue row right
+15,wrong,ground: red row mixes both fighters
+16,right,celebration after the fight counted as fighting time (identity itself right)
+17,right,
+18,right,
+19,right,
+20,cant_judge,walk-out or celebration with flags; not fighting
+21,right,one red crop is a cameraman
+22,right,ref shot's blue row is the crowd; kit trims match the corners
+23,wrong,both rows mix the fighters and a cameraman
+24,right,
+25,right,borderline: clinch on the fence
+26,right,borderline: 6 of 8 blue crops
+27,right,
+28,right,
+29,right,ground; red on top
+30,cant_judge,no red crops and 2 blue
+31,wrong,blue row holds the red fighter in about 3 of 8 crops
+32,wrong,clinch on the fence: blue row holds the red fighter in 2 to 3 of 8
+33,right,
+34,right,
+35,cant_judge,no reference shot; both kits alike so a swap can't be ruled out
+36,right,
+37,right,4 crops per row
+38,right,
+39,right,
+40,cant_judge,2 blue crops; red row a dark clinch on the fence
