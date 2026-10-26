@@ -19,6 +19,7 @@ from cornerman.perception.identity import (
     confidence,
     label_free_checks,
     per_crop_roles,
+    segment_quality,
     tracklet_roles,
     train_probe,
 )
@@ -162,6 +163,30 @@ def test_label_free_checks_catch_one_corner_on_two_people() -> None:
     bad = label_free_checks(tracks, box_roles(tracks, bad_roles), bad_roles, fighting)
     assert bad["dup"] == pytest.approx(1.0)
     assert confidence({**result.stats, **good}) > confidence({**result.stats, **bad})
+
+
+def test_segment_quality_flags_only_the_broken_shot() -> None:
+    tracks, table, _, _, _ = _scene()
+    name = {"R": "red", "B": "blue", "X": "referee"}
+    roles = tracks[["frame", "track_id"]].assign(role=tracks["truth"].map(name))
+    # In shot 2 the referee is called red: one corner on two people there only.
+    roles.loc[(tracks["shot_id"] == 2) & (tracks["truth"] == "X"), "role"] = "red"
+    frames = tracks[["frame", "t", "shot_id"]].drop_duplicates("frame")
+    fighting = frames[["frame"]].assign(fighting=True)
+    stats = {"fighter_prob_min": 0.9}
+    args = (tracks, frames, roles, table[["frame", "track_id"]], fighting)
+    # Clean shots score about 0.98; the broken one 0.5 (dup 1 and closest 0, but every
+    # crop has a corner, which rb_share rewards).
+    seg = segment_quality(*args, stats, min_s=3.0, flag_below=0.6).set_index("shot_id")
+    assert seg["usable"].to_dict() == {0: True, 1: True, 2: False, 3: True}
+    assert seg.loc[2, "dup"] == pytest.approx(1.0)
+    assert (seg["score"].drop(2) > 0.9).all()
+    assert seg.loc[0, "fight_s"] == pytest.approx(10.0)
+    assert (seg["n_red"] > 0).all()
+    # Too little fighting time, or a fight whose assignment failed: nothing usable.
+    assert not segment_quality(*args, stats, min_s=20.0, flag_below=0.5)["usable"].any()
+    failed = {**stats, "failed": 1.0}
+    assert not segment_quality(*args, failed, min_s=3.0, flag_below=0.5)["usable"].any()
 
 
 def test_confidence_is_bounded() -> None:

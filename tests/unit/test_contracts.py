@@ -93,3 +93,29 @@ def test_usable_and_population_fights(tmp_path: Path) -> None:
     hold.write_text("fight_id,reason\nft_good,division not shown\n")
     assert usable_fights(tmp_path, hold) == []
     assert population_fights(tmp_path, hold) == ["ft_bad"]
+
+
+def test_usable_frames_keep_clean_shots_of_flagged_fights(tmp_path: Path) -> None:
+    from cornerman.contracts.perception import usable_frames
+
+    fighting = pd.DataFrame({"frame": range(0, 100, 5)}).assign(fighting=lambda d: d["frame"] < 90)
+    segments = pd.DataFrame(
+        {"shot_id": [0, 1], "start": [0, 50], "end": [45, 85], "usable": [True, False]}
+    )
+    for fid, conf in (("ft_good", 0.7), ("ft_bad", 0.3), ("ft_old", 0.3)):
+        d = tmp_path / fid / "identity"
+        d.mkdir(parents=True)
+        (d / "quality.json").write_text(
+            json.dumps({"confidence": conf, "flagged": conf < 0.5, "checks": {}})
+        )
+        fighting.to_parquet(d / "fighting.parquet")
+        if fid != "ft_old":  # ft_old has no segments yet: nothing of it is usable
+            (tmp_path / fid / "identity_segments").mkdir()
+            segments.to_parquet(tmp_path / fid / "identity_segments" / "segments.parquet")
+    frames = usable_frames(tmp_path, tmp_path / "no_hold.csv")
+    assert sorted(frames) == ["ft_bad", "ft_good"]
+    assert frames["ft_good"] == set(range(0, 90, 5))  # unflagged: all fighting frames
+    assert frames["ft_bad"] == set(range(0, 50, 5))  # flagged: the usable shot only
+    hold = tmp_path / "hold.csv"
+    hold.write_text("fight_id,reason\nft_bad,division not shown\n")
+    assert sorted(usable_frames(tmp_path, hold)) == ["ft_good"]

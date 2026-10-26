@@ -26,6 +26,7 @@ from cornerman.contracts.perception import (
     IDENTITY_SCHEMA,
     POSES_SCHEMA,
     ROLES_SCHEMA,
+    SEGMENTS_SCHEMA,
     TRACKS_SCHEMA,
     fighter_boxes,
     validate,
@@ -50,6 +51,7 @@ from cornerman.perception.identity import (
     confidence,
     label_free_checks,
     live_shots,
+    segment_quality,
     tracklet_roles,
 )
 from cornerman.perception.kitcolour import COLUMNS as SAMPLE_COLUMNS
@@ -356,6 +358,34 @@ def identity(ctx: StageContext) -> None:
     (ctx.out_dir / "quality.json").write_text(json.dumps(quality, indent=2, sort_keys=True))
 
 
+def identity_segments(ctx: StageContext) -> None:
+    """Identity confidence per shot, so the clean shots of a flagged fight can be used."""
+    p = ctx.settings.perception
+    tracks = pd.read_parquet(ctx.inputs["tracking"] / "tracks.parquet")
+    frames = pd.read_parquet(ctx.inputs["tracking"] / "frames.parquet")
+    live = pd.read_parquet(ctx.inputs["tracking"] / "live.parquet")
+    crops = pd.read_parquet(
+        ctx.inputs["crop_features"] / "crops.parquet", columns=["frame", "track_id"]
+    )
+    roles = pd.read_parquet(ctx.inputs["identity"] / "roles.parquet")
+    fighting = pd.read_parquet(ctx.inputs["identity"] / "fighting.parquet")
+    quality = json.loads((ctx.inputs["identity"] / "quality.json").read_text())
+    in_live = tracks[tracks["shot_id"].isin(live.loc[live["live"], "shot_id"])]
+    segments = segment_quality(
+        in_live,
+        frames,
+        roles,
+        crops,
+        fighting,
+        quality["checks"],
+        p.identity_segment_min_s,
+        p.identity_flag_below,
+    )
+    validate(SEGMENTS_SCHEMA, segments, "identity_segments").to_parquet(
+        ctx.out_dir / "segments.parquet", index=False
+    )
+
+
 REAL_PIPELINE: list[Stage] = [
     Stage("ingest", ingest, config_keys=("perception.max_height", "perception.min_height")),
     Stage(
@@ -423,5 +453,11 @@ REAL_PIPELINE: list[Stage] = [
         ),
         version="3",
         sources=_probe_file,
+    ),
+    Stage(
+        "identity_segments",
+        identity_segments,
+        deps=("tracking", "crop_features", "identity"),
+        config_keys=("perception.identity_segment_min_s", "perception.identity_flag_below"),
     ),
 ]

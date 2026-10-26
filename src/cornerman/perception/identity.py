@@ -38,6 +38,7 @@ corner first (checked against the broadcast score bar, DECISIONS.md).
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -580,6 +581,82 @@ def confidence(stats: Mapping[str, float]) -> float:
             ]
         )
     )
+
+
+def segment_quality(
+    tracks: pd.DataFrame,
+    frames: pd.DataFrame,
+    roles: pd.DataFrame,
+    crops: pd.DataFrame,
+    fighting: pd.DataFrame,
+    fight_stats: Mapping[str, float],
+    min_s: float,
+    flag_below: float,
+) -> pd.DataFrame:
+    """Identity confidence per segment: one segment is one shot's fighting time.
+
+    A fight's identity can be wrong in places only (a clinch or ground tangle
+    where the other fighter leaks into a corner), so the fight score can flag a
+    fight whose other shots are clean. Each shot gets the same label-free checks
+    and the same `confidence` as a whole fight, from its own boxes and crops.
+    The fighter-classifier term is per fight (it says whether the two people
+    picked are fighters at all), so a fight whose pair is doubtful can't pass by
+    its local checks alone. A segment is usable if it has at least `min_s`
+    seconds of fighting and scores at least `flag_below`; a failed fight has
+    none.
+
+    `tracks` are live-shot boxes, `roles` the role per box (roles.parquet),
+    `crops` the crop keys (frame, track_id), `fighting` the fighting table.
+    """
+    crop_roles = crops[["frame", "track_id"]].merge(roles, on=["frame", "track_id"])
+    checked = box_roles(tracks, crop_roles, fill=False)
+    crop_roles = crop_roles.assign(gap=np.nan)
+    dt = float(np.median(np.diff(frames["t"].sort_values()))) if len(frames) > 1 else 0.1
+    shot_of = frames.set_index("frame")["shot_id"]
+    fight = fighting.loc[fighting["fighting"], ["frame"]]
+    fight = fight.assign(shot_id=fight["frame"].map(shot_of)).dropna()
+    fight = fight[fight["shot_id"] >= 0]  # gap-filled frames between shots belong to none
+    failed = fight_stats.get("failed", 0.0) > 0
+    rows: list[dict[str, object]] = []
+    for shot_id, g in fight.groupby("shot_id"):
+        fset = set(g["frame"].tolist())
+        t = tracks[tracks["shot_id"] == shot_id]
+        c = crop_roles[crop_roles["frame"].isin(t["frame"])]
+        stats = {**label_free_checks(t, checked, c, fset)}
+        stats["fighter_prob_min"] = fight_stats.get("fighter_prob_min", 0.0)
+        score = confidence(stats)
+        in_fight = c[c["frame"].isin(fset)]
+        fight_s = len(fset) * dt
+        rows.append(
+            {
+                "shot_id": int(cast(int, shot_id)),
+                "start": int(min(fset)),
+                "end": int(max(fset)),
+                "fight_s": fight_s,
+                "n_red": int((in_fight["role"] == "red").sum()),
+                "n_blue": int((in_fight["role"] == "blue").sum()),
+                **{k: float(stats[k]) for k in ("both", "dup", "rb_share", "closest")},
+                "score": score,
+                "usable": bool(not failed and fight_s >= min_s and score >= flag_below),
+            }
+        )
+    return pd.DataFrame(rows, columns=SEGMENT_COLUMNS)
+
+
+SEGMENT_COLUMNS = [
+    "shot_id",
+    "start",
+    "end",
+    "fight_s",
+    "n_red",
+    "n_blue",
+    "both",
+    "dup",
+    "rb_share",
+    "closest",
+    "score",
+    "usable",
+]
 
 
 def corner_fighters(fighter_a_id: str, fighter_b_id: str) -> Mapping[str, str]:

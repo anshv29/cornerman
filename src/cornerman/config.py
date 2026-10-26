@@ -98,6 +98,9 @@ class PerceptionConfig(BaseModel):
     """Fights whose identity confidence is below this are flagged (quality.json). 0.5 was
     chosen after the held-out test (the frozen 0.4 caught too few wrong fights), so it
     must be re-validated on the next fresh fights (DECISIONS.md, 2026-10-19)."""
+    identity_segment_min_s: float = Field(default=3.0, ge=0)
+    """Shots with less fighting time than this are never usable on their own in a flagged
+    fight: too few crops to judge (identity_segments)."""
     pose_model: str = "usyd-community/vitpose-plus-large"
     pose_revision: str = "e211df377e49"
     pose_batch: int = Field(default=16, ge=1)

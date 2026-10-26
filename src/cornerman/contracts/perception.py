@@ -53,6 +53,31 @@ ROLES_SCHEMA = pa.DataFrameSchema(
 """One role per tracked box. A tracklet can change role (tracker ID switches in tangles)."""
 
 
+def _ordered_segment(df: pd.DataFrame) -> pd.Series:
+    return df["end"] >= df["start"]
+
+
+SEGMENTS_SCHEMA = pa.DataFrameSchema(
+    {
+        "shot_id": pa.Column(int, pa.Check.ge(0), unique=True),  # pyright: ignore[reportUnknownMemberType]
+        "start": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "end": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "fight_s": pa.Column(float, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "n_red": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "n_blue": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "both": pa.Column(float, pa.Check.in_range(0, 1)),  # pyright: ignore[reportUnknownMemberType]
+        "dup": pa.Column(float, pa.Check.in_range(0, 1)),  # pyright: ignore[reportUnknownMemberType]
+        "rb_share": pa.Column(float, pa.Check.in_range(0, 1)),  # pyright: ignore[reportUnknownMemberType]
+        "closest": pa.Column(float, nullable=True),
+        "score": pa.Column(float, pa.Check.in_range(0, 1)),  # pyright: ignore[reportUnknownMemberType]
+        "usable": pa.Column(bool),
+    },
+    checks=[pa.Check(_ordered_segment, error="segments end after they start")],
+    strict=True,
+)
+"""Identity confidence per shot (identity_segments stage): one row per shot with fighting."""
+
+
 def role_keys(roles: pd.DataFrame) -> list[str]:
     """Join keys for a roles table: per box if it has a frame column, else per tracklet."""
     return ["frame", "track_id"] if "frame" in roles.columns else ["track_id"]
@@ -111,6 +136,40 @@ def usable_fights(derived: Path, hold: Path = HOLD_CSV) -> list[str]:
         return []
     q = q[~q["fight_id"].isin(held_fights(hold))]
     return sorted(q.loc[~q["flagged"], "fight_id"].tolist())
+
+
+def usable_frames(derived: Path, hold: Path = HOLD_CSV) -> dict[str, set[int]]:
+    """Fighting frames whose identity can be used for anything per fighter, per fight.
+
+    An unflagged fight gives all its fighting frames; a flagged fight gives only the
+    frames of its usable segments (identity_segments), so its clean shots aren't lost.
+    Fights on hold give nothing.
+    """
+    q = identity_quality(derived)
+    held = held_fights(hold)
+    out: dict[str, set[int]] = {}
+    for fid, flagged in zip(
+        q["fight_id"].tolist() if len(q) else [],
+        q["flagged"].tolist() if len(q) else [],
+        strict=True,
+    ):
+        if fid in held:
+            continue
+        fighting = pd.read_parquet(derived / fid / "identity" / "fighting.parquet")
+        frames = fighting.loc[fighting["fighting"], "frame"]
+        if flagged:
+            seg_path = derived / fid / "identity_segments" / "segments.parquet"
+            if not seg_path.exists():
+                continue
+            seg = pd.read_parquet(seg_path)
+            seg = seg[seg["usable"]]
+            inside = pd.Series(False, index=frames.index)
+            for start, end in zip(seg["start"].tolist(), seg["end"].tolist(), strict=True):
+                inside |= frames.between(start, end)
+            frames = frames[inside]
+        if len(frames):
+            out[str(fid)] = set(frames.astype(int).tolist())
+    return out
 
 
 def population_fights(derived: Path, hold: Path = HOLD_CSV) -> list[str]:

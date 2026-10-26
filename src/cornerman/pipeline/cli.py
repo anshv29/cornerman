@@ -49,6 +49,22 @@ def pipeline_for(name: str) -> list[Stage]:
     return REAL_PIPELINE
 
 
+def _segment_report(derived: Path, q: pd.DataFrame) -> None:
+    """Fighting minutes usable per fighter: whole unflagged fights, clean shots of flagged ones."""
+    from cornerman.contracts.perception import usable_frames
+
+    per_min = PerceptionConfig().fps * 60  # identity runs on frames sampled at this rate
+    frames = usable_frames(derived)
+    flagged = q.loc[q["flagged"], "fight_id"].tolist()
+    gained = {f: len(frames[f]) / per_min for f in flagged if f in frames}
+    whole = sum(len(v) for f, v in frames.items() if f not in flagged) / per_min
+    print(
+        f"usable fighting time: {whole:.1f} min in {len(frames) - len(gained)} unflagged fights, "
+        f"plus {sum(gained.values()):.1f} min from clean shots of {len(gained)} flagged fights "
+        f"({sum(m >= 1 for m in gained.values())} with at least a minute)"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cornerman")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -162,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
         q.to_parquet(args.derived / "identity_quality.parquet", index=False)
         print(q[["fight_id", "confidence", "flagged"]].round(3).to_string(index=False))
         print(f"{int(q['flagged'].sum())} of {len(q)} fights flagged")
+        _segment_report(args.derived, q)
         return 0
     if args.command == "gold-clips":
         quotas = (

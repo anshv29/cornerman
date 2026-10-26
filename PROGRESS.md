@@ -101,6 +101,7 @@ Free Kaggle GPU used so far: about 35 hours in total. On 2026-10-19 and 10-20: a
 ## Next
 1. **Identity confidence per segment, not per fight** (Ansh, 2026-10-25: next priority after the silver report). Laptop only, no GPU: the four label-free checks per shot or per stretch of fighting time, so the clean parts of flagged fights become usable. The threshold needs its own check.
 2. Phase 3: per-state accuracy of the rules labeller against silver, and Dawid-Skene over labellers A and B.
+   **Cage pressure is evaluated with fence-distance geometry, not the VLM** (Ansh, 2026-10-25). The VLM's cage-pressure answer flips with the colour order 46% of the time, and silver has only 1 cage clip. Use the measured distance from each fighter's feet to the fence (SPEC Layer 1 step 5: cage mask and mat homography) at striking range to label pressuring and pressured, and drop the VLM as a cage labeller.
 3. MLflow comes later, before the first real model fit (Phase 4).
 
 **For the next GPU batch:** ft_2b1a88cfe9 is back in `fights.csv` (IMMAF's results put it in the adult 2019 European Middleweight bracket; its "junior" hit was the event banner). Not processed yet. Ansh: process it with the next batch, not on its own. `select_fights` picks it up automatically.
