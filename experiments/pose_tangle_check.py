@@ -114,6 +114,11 @@ def launch() -> None:
 def do_import() -> None:
     meta = kaggle.read_kernel_metadata(KERNEL)
     kaggle.pull_output(str(meta["id"]), OUT / "output")
+    res = json.loads((OUT / "output" / "results.json").read_text())
+    errors = sum("error" in r[m] for r in res for m in "ABC")
+    if errors:
+        print(f"{errors} method runs failed; dataset kept for a rerun")
+        return
     user = str(meta["id"]).split("/")[0]
     kaggle.delete_dataset(f"{user}/{SLUG}")
     print(f"pulled to {OUT / 'output'}, deleted {user}/{SLUG}")

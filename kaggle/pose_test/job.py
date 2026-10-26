@@ -125,10 +125,10 @@ def method_c(img):
 
 
 def main() -> None:
+    start = time.time()
+    install()  # before anything imports numpy: pip may replace it
     import cv2
 
-    start = time.time()
-    install()
     frames = sorted(INPUT.rglob("*__*.jpg"))
     print(f"{len(frames)} frames, setup {time.time() - start:.0f}s", flush=True)
     results: list[dict[str, object]] = []
