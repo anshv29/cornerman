@@ -240,3 +240,14 @@ def test_pull_output_retries_and_drops_broken_files(tmp_path: Path) -> None:
 
     with pytest.raises(KaggleError):
         pull_output("someone/k", tmp_path, runner=broken, tries=2)
+
+
+def test_stalled_cli_call_becomes_a_kaggle_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A download that hangs must end as a KaggleError, so pull_output retries it."""
+    import sys
+
+    from cornerman.remote import kaggle as k
+
+    monkeypatch.setattr(k, "KAGGLE_CLI", [sys.executable, "-c", "import time; time.sleep(5)"])
+    with pytest.raises(KaggleError, match="took over"):
+        k._run_cli(["kernels", "output", "someone/k"], timeout=0.5)  # pyright: ignore[reportPrivateUsage]

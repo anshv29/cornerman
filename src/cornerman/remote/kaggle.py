@@ -42,8 +42,13 @@ class KaggleError(Exception):
     """The Kaggle CLI returned an error."""
 
 
-def _run_cli(args: Sequence[str]) -> str:
-    result = subprocess.run([*KAGGLE_CLI, *args], capture_output=True, text=True, check=False)
+def _run_cli(args: Sequence[str], timeout: float | None = None) -> str:
+    try:
+        result = subprocess.run(
+            [*KAGGLE_CLI, *args], capture_output=True, text=True, check=False, timeout=timeout
+        )
+    except subprocess.TimeoutExpired as e:
+        raise KaggleError(f"kaggle {' '.join(args)} took over {timeout:.0f}s") from e
     if result.returncode != 0:
         raise KaggleError(f"kaggle {' '.join(args)} failed:\n{result.stdout}{result.stderr}")
     return result.stdout
@@ -179,13 +184,22 @@ def kernel_status(ref: str, runner: Runner = _run_cli) -> str:
     return kaggle(["kernels", "status", ref], runner).strip()
 
 
-def pull_output(ref: str, dest: Path, runner: Runner = _run_cli, tries: int = 6) -> Path:
+PULL_TIMEOUT_S = 1800.0
+"""A kernel output download that takes longer has stalled (seen: 4 hours, no bytes)."""
+
+
+def _pull_cli(args: Sequence[str]) -> str:
+    return _run_cli(args, PULL_TIMEOUT_S)
+
+
+def pull_output(ref: str, dest: Path, runner: Runner = _pull_cli, tries: int = 6) -> Path:
     """Download a kernel's output, retrying when the connection drops.
 
     Large outputs (a batch's crop zips) often break mid-download. The CLI skips
     files that are already up to date, so a retry carries on where it stopped,
     except that a broken download leaves an empty file the CLI would also skip.
-    Empty files are removed before each retry.
+    Empty files are removed before each retry. A download that stalls is stopped
+    after PULL_TIMEOUT_S and retried the same way.
     """
     dest.mkdir(parents=True, exist_ok=True)
     for attempt in range(tries):
