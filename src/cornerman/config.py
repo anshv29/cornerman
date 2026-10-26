@@ -101,6 +101,10 @@ class PerceptionConfig(BaseModel):
     identity_segment_min_s: float = Field(default=3.0, ge=0)
     """Shots with less fighting time than this are never usable on their own in a flagged
     fight: too few crops to judge (identity_segments)."""
+    identity_segment_min_both: float = Field(default=0.3, ge=0, le=1)
+    """A shot of a flagged fight is usable only if both fighters are boxed in at least
+    this share of its fighting frames (identity_segments; set from the first by-eye
+    check, tested on a second, DECISIONS.md)."""
     pose_model: str = "usyd-community/vitpose-plus-large"
     pose_revision: str = "e211df377e49"
     pose_batch: int = Field(default=16, ge=1)

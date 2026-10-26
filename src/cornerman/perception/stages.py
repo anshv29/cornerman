@@ -380,6 +380,7 @@ def identity_segments(ctx: StageContext) -> None:
         quality["checks"],
         p.identity_segment_min_s,
         p.identity_flag_below,
+        p.identity_segment_min_both,
     )
     validate(SEGMENTS_SCHEMA, segments, "identity_segments").to_parquet(
         ctx.out_dir / "segments.parquet", index=False
@@ -458,6 +459,10 @@ REAL_PIPELINE: list[Stage] = [
         "identity_segments",
         identity_segments,
         deps=("tracking", "crop_features", "identity"),
-        config_keys=("perception.identity_segment_min_s", "perception.identity_flag_below"),
+        config_keys=(
+            "perception.identity_segment_min_s",
+            "perception.identity_flag_below",
+            "perception.identity_segment_min_both",
+        ),
     ),
 ]

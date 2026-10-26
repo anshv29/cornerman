@@ -555,7 +555,7 @@ def label_free_checks(
     o = crop_roles.sort_values(["track_id", "frame"])
     same = o["track_id"].eq(o["track_id"].shift())
     stats["switch_rate"] = float((same & o["role"].ne(o["role"].shift())).sum()) / max(1, len(o))
-    stats["fight_min"] = len(fighting) / 600.0
+    stats["fight_min"] = len(fighting) / 600.0  # assumes 10 fps; some fights run at 12.5
     return stats
 
 
@@ -592,6 +592,7 @@ def segment_quality(
     fight_stats: Mapping[str, float],
     min_s: float,
     flag_below: float,
+    min_both: float,
 ) -> pd.DataFrame:
     """Identity confidence per segment: one segment is one shot's fighting time.
 
@@ -602,8 +603,12 @@ def segment_quality(
     The fighter-classifier term is per fight (it says whether the two people
     picked are fighters at all), so a fight whose pair is doubtful can't pass by
     its local checks alone. A segment is usable if it has at least `min_s`
-    seconds of fighting and scores at least `flag_below`; a failed fight has
-    none.
+    seconds of fighting, scores at least `flag_below`, and has both fighters
+    boxed in at least `min_both` of its fighting frames; a failed fight has none.
+
+    The `min_both` clause came from the first by-eye check (DECISIONS.md): every
+    wrong kept shot, and most kept shots that couldn't be judged, had one
+    fighter boxed in under 30% of its frames, so its identity was barely checked.
 
     `tracks` are live-shot boxes, `roles` the role per box (roles.parquet),
     `crops` the crop keys (frame, track_id), `fighting` the fighting table.
@@ -637,7 +642,12 @@ def segment_quality(
                 "n_blue": int((in_fight["role"] == "blue").sum()),
                 **{k: float(stats[k]) for k in ("both", "dup", "rb_share", "closest")},
                 "score": score,
-                "usable": bool(not failed and fight_s >= min_s and score >= flag_below),
+                "usable": bool(
+                    not failed
+                    and fight_s >= min_s
+                    and score >= flag_below
+                    and stats["both"] >= min_both
+                ),
             }
         )
     return pd.DataFrame(rows, columns=SEGMENT_COLUMNS)

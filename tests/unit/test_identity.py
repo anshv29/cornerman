@@ -177,16 +177,25 @@ def test_segment_quality_flags_only_the_broken_shot() -> None:
     args = (tracks, frames, roles, table[["frame", "track_id"]], fighting)
     # Clean shots score about 0.98; the broken one 0.5 (dup 1 and closest 0, but every
     # crop has a corner, which rb_share rewards).
-    seg = segment_quality(*args, stats, min_s=3.0, flag_below=0.6).set_index("shot_id")
+    seg = segment_quality(*args, stats, min_s=3.0, flag_below=0.6, min_both=0.3)
+    seg = seg.set_index("shot_id")
     assert seg["usable"].to_dict() == {0: True, 1: True, 2: False, 3: True}
     assert seg.loc[2, "dup"] == pytest.approx(1.0)
     assert (seg["score"].drop(2) > 0.9).all()
     assert seg.loc[0, "fight_s"] == pytest.approx(10.0)
     assert (seg["n_red"] > 0).all()
     # Too little fighting time, or a fight whose assignment failed: nothing usable.
-    assert not segment_quality(*args, stats, min_s=20.0, flag_below=0.5)["usable"].any()
+    assert not segment_quality(*args, stats, 20.0, 0.5, 0.3)["usable"].any()
     failed = {**stats, "failed": 1.0}
-    assert not segment_quality(*args, failed, min_s=3.0, flag_below=0.5)["usable"].any()
+    assert not segment_quality(*args, failed, 3.0, 0.5, 0.3)["usable"].any()
+    # One fighter rarely boxed: both fighters together in under min_both of the frames.
+    # Blue is named only in the first 20 frames of each shot; the score check is off.
+    one = roles.copy()
+    one.loc[(tracks["truth"] == "B") & (tracks["frame"] % 100 >= 20), "role"] = "other"
+    lonely = (tracks, frames, one, table[["frame", "track_id"]], fighting, stats, 3.0, 0.0)
+    assert segment_quality(*lonely, 0.3)["both"].max() == pytest.approx(0.2, abs=0.03)
+    assert not segment_quality(*lonely, 0.3)["usable"].any()
+    assert segment_quality(*lonely, 0.1)["usable"].all()
 
 
 def test_confidence_is_bounded() -> None:

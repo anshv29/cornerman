@@ -53,13 +53,16 @@ def _segment_report(derived: Path, q: pd.DataFrame) -> None:
     """Fighting minutes usable per fighter: whole unflagged fights, clean shots of flagged ones."""
     from cornerman.contracts.perception import usable_frames
 
-    per_min = PerceptionConfig().fps * 60  # identity runs on frames sampled at this rate
-    frames = usable_frames(derived)
-    flagged = q.loc[q["flagged"], "fight_id"].tolist()
-    gained = {f: len(frames[f]) / per_min for f in flagged if f in frames}
-    whole = sum(len(v) for f, v in frames.items() if f not in flagged) / per_min
+    flagged = set(q.loc[q["flagged"], "fight_id"].tolist())
+    minutes: dict[str, float] = {}
+    for fid, frames in usable_frames(derived).items():
+        t = pd.read_parquet(derived / fid / "identity" / "fighting.parquet", columns=["t"])["t"]
+        dt = float(t.diff().median())  # 0.1 s or 0.08 s, depending on the video
+        minutes[fid] = len(frames) * dt / 60
+    whole = sum(m for f, m in minutes.items() if f not in flagged)
+    gained = {f: m for f, m in minutes.items() if f in flagged}
     print(
-        f"usable fighting time: {whole:.1f} min in {len(frames) - len(gained)} unflagged fights, "
+        f"usable fighting time: {whole:.1f} min in {len(minutes) - len(gained)} unflagged fights, "
         f"plus {sum(gained.values()):.1f} min from clean shots of {len(gained)} flagged fights "
         f"({sum(m >= 1 for m in gained.values())} with at least a minute)"
     )
