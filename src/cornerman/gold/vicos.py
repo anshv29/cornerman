@@ -23,7 +23,9 @@ maps to ground-scrambling for both. ViCoS has no clinch, cage or strikes, so it
 only tests standing versus ground and who is on top.
 """
 
+import io
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -31,6 +33,9 @@ import pandas as pd
 from cornerman.taxonomy import State
 
 ANNOTATIONS_URL = "http://data.vicos.si/datasets/JuiJuitsu/annotations.json"
+IMAGES_URL = "https://data.vicos.si/datasets/JuiJuitsu/images.zip"
+"""10 GB in one zip. The server allows HTTP range requests, so a sample of images is
+read straight out of it (`fetch_images`) without downloading the rest."""
 ANNOTATIONS_SHA256 = "b7633ed161372bef7d0dcdd2cb3bc69400147b6a2532a4a5b8070048a1dd62bc"
 FOLDER = Path("data/external/vicos_jiujitsu")
 
@@ -60,7 +65,7 @@ def _pose(p: object) -> np.ndarray | None:
 
 
 def load(path: Path = FOLDER / "annotations.json") -> pd.DataFrame:
-    """One row per frame: recording, frame, position, state1, state2, pose1, pose2.
+    """One row per frame: image, recording, frame, position, state1, state2, pose1, pose2.
 
     Poses are (17, 3) arrays of x, y, confidence, or None where that athlete has no
     pose. Takedown frames are dropped.
@@ -74,6 +79,7 @@ def load(path: Path = FOLDER / "annotations.json") -> pd.DataFrame:
             continue
         rows.append(
             {
+                "image": str(a["image"]),
                 "recording": int(str(a["image"])[:2]),
                 "frame": int(a["frame"]),
                 "position": str(a["position"]),
@@ -138,3 +144,83 @@ def rules_report(scored: pd.DataFrame) -> dict[str, float]:
         "top_wrong": float((said_top.notna() & (said_top != top["truth_top"])).mean()),
         "top_even": float(said_top.isna().mean()),
     }
+
+
+class _RangeFile(io.RawIOBase):
+    """A read-only file over HTTP range requests, so zipfile can read one member of a
+    remote zip. Reads ahead in blocks to keep the number of requests down."""
+
+    def __init__(self, url: str, block: int = 1 << 20) -> None:
+        import urllib.request
+
+        req = urllib.request.Request(url, method="HEAD")
+        with urllib.request.urlopen(req, timeout=60) as r:
+            self.size = int(r.headers["Content-Length"])
+        self.url, self.block, self.pos = url, block, 0
+        self._start, self._data = -1, b""
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self.pos
+
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        base = {io.SEEK_SET: 0, io.SEEK_CUR: self.pos, io.SEEK_END: self.size}[whence]
+        self.pos = base + offset
+        return self.pos
+
+    def _fetch(self, start: int, end: int) -> bytes:
+        import urllib.request
+
+        req = urllib.request.Request(self.url, headers={"Range": f"bytes={start}-{end - 1}"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            data: bytes = r.read()
+        return data
+
+    def readinto(self, b: Any) -> int:
+        n = min(len(b), self.size - self.pos)
+        if n <= 0:
+            return 0
+        inside = self._start <= self.pos and self.pos + n <= self._start + len(self._data)
+        if not inside:
+            self._start = self.pos
+            self._data = self._fetch(self.pos, min(self.size, self.pos + max(n, self.block)))
+        k = self.pos - self._start
+        b[:n] = self._data[k : k + n]
+        self.pos += n
+        return n
+
+
+def sample_frames(frames: pd.DataFrame, per_position: int, seed: int) -> pd.DataFrame:
+    """Up to `per_position` frames of each position with both athletes' poses, seeded."""
+    both = frames[frames["pose1"].notna() & frames["pose2"].notna()]
+    return (
+        both.groupby("position", group_keys=False)
+        .apply(lambda g: g.sample(min(per_position, len(g)), random_state=seed))  # pyright: ignore[reportUnknownLambdaType, reportUnknownMemberType, reportUnknownArgumentType]
+        .reset_index(drop=True)
+    )
+
+
+def fetch_images(images: list[str], dest: Path, url: str = IMAGES_URL) -> list[Path]:
+    """Copy the named images out of the remote zip into `dest` (kept local, never uploaded).
+    Images already there are skipped."""
+    import zipfile
+
+    dest.mkdir(parents=True, exist_ok=True)
+    out: list[Path] = []
+    todo = [i for i in images if not (dest / f"{i}.jpg").exists()]
+    if todo:
+        with zipfile.ZipFile(io.BufferedReader(_RangeFile(url), buffer_size=1 << 16)) as z:
+            by_stem = {Path(n).stem: n for n in z.namelist() if n.endswith((".jpg", ".png"))}
+            for i in todo:
+                name = by_stem.get(i)
+                if name is not None:
+                    (dest / f"{i}.jpg").write_bytes(z.read(name))
+    for i in images:
+        if (dest / f"{i}.jpg").exists():
+            out.append(dest / f"{i}.jpg")
+    return out

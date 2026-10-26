@@ -128,6 +128,13 @@ class PerceptionConfig(BaseModel):
     masks_width: int = Field(default=320, ge=32)
     """Masks are stored at this width (a quarter of 720p's 1280), as packed bits."""
     masks_batch: int = Field(default=8, ge=1)
+    tangle_contact_px: int = Field(default=3, ge=0)
+    """Two masks (stored at masks_width) touch if they overlap once each is grown by this."""
+    tangle_ground_ratio: float = Field(default=1.0, gt=0)
+    """The pair is on the ground when its combined box's height / width is below this."""
+    tangle_top_margin: float = Field(default=0.1, ge=0)
+    """The top fighter's mask centre must be higher by at least this share of the pair's
+    height; closer than that, nobody is called on top."""
     identity_segment_min_s: float = Field(default=3.0, ge=0)
     """Shots with less fighting time than this are never usable on their own in a flagged
     fight: too few crops to judge (identity_segments)."""
