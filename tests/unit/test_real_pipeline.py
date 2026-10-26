@@ -240,6 +240,14 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
     m = unpack(saved["packed"], (shape[0], shape[1]))
     assert len(m) == len(inst) and (m.sum((1, 2)) == inst["area"].to_numpy()).all()
 
+    # Tangle rules: the red and blue fighters stand 20 px apart in the synthetic video,
+    # so in most frames no two people touch; where a pair is found it is standing.
+    pairs = pd.read_parquet(d / "tangle" / "pairs.parquet")
+    assert set(pairs["frame"]) == set(inst["frame"])
+    assert set(pairs["posture"]) <= {"none", "standing"}
+    skel = pd.read_parquet(d / "tangle" / "skeletons.parquet")
+    assert len(skel) == len(inst)
+
     # Second run is fully cached.
     again = run(REAL_PIPELINE, settings, ["ft_test"])
     assert {r.status for r in again} == {Status.CACHED}

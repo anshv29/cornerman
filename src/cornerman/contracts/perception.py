@@ -88,6 +88,35 @@ shows): box in pixels, detector score, mask area in stored-mask pixels, and the 
 keypoints (x, y in pixels, confidence) from pose with the other people greyed out. Row k
 goes with row k of masks.npz."""
 
+TANGLE_PAIRS_SCHEMA = pa.DataFrameSchema(
+    {
+        "frame": pa.Column(int, pa.Check.ge(0), unique=True),  # pyright: ignore[reportUnknownMemberType]
+        "t": pa.Column(float, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "a": pa.Column(int, pa.Check.ge(-1)),  # pyright: ignore[reportUnknownMemberType]
+        "b": pa.Column(int, pa.Check.ge(-1)),  # pyright: ignore[reportUnknownMemberType]
+        "contact": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "posture": pa.Column(str, pa.Check.isin(["standing", "ground", "none"])),  # pyright: ignore[reportUnknownMemberType]
+        "top": pa.Column(int, pa.Check.ge(-1)),  # pyright: ignore[reportUnknownMemberType]
+    },
+    strict=True,
+)
+"""Per masks-stage frame (tangle stage): the fighter pair as instance numbers (-1, -1 and
+posture "none" when no two people touch), standing or ground, and the instance on top
+(-1 when standing, or too close to call)."""
+
+TANGLE_SKELETONS_SCHEMA = pa.DataFrameSchema(
+    {
+        "frame": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "inst": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "in_pair": pa.Column(bool),
+        "clean": pa.Column(bool),
+    },
+    strict=True,
+    unique=["frame", "inst"],
+)
+"""Per masks-stage person (tangle stage): whether it is one of the touching pair, and
+whether its skeleton lies on its own body (kept even when the other fighter's isn't)."""
+
 CLOCK_SCHEMA = pa.DataFrameSchema(
     {
         "frame": pa.Column(int, pa.Check.ge(0), unique=True),  # pyright: ignore[reportUnknownMemberType]

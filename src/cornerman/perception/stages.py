@@ -16,6 +16,7 @@ import json
 import shutil
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import cast
 
 import cv2
 import numpy as np
@@ -30,6 +31,8 @@ from cornerman.contracts.perception import (
     POSES_SCHEMA,
     ROLES_SCHEMA,
     SEGMENTS_SCHEMA,
+    TANGLE_PAIRS_SCHEMA,
+    TANGLE_SKELETONS_SCHEMA,
     TRACKS_SCHEMA,
     fighter_boxes,
     validate,
@@ -60,7 +63,16 @@ from cornerman.perception.identity import (
 from cornerman.perception.kitcolour import COLUMNS as SAMPLE_COLUMNS
 from cornerman.perception.kitcolour import empty_samples, sample_person
 from cornerman.perception.shots import shot_of_frame, shots_from_probs
-from cornerman.perception.tangle import grey_others, pack, small_mask
+from cornerman.perception.tangle import (
+    fighter_pair,
+    grey_others,
+    pack,
+    posture,
+    skeleton_clean,
+    small_mask,
+    top_of,
+    unpack,
+)
 from cornerman.perception.video import Frame, ensure_video, frame_step, probe
 from cornerman.pipeline.hashing import hash_file
 from cornerman.pipeline.stage import QuarantineError, Stage, StageContext
@@ -380,6 +392,59 @@ def masks(ctx: StageContext) -> None:
     np.savez_compressed(ctx.out_dir / "masks.npz", packed=pack(small), shape=np.array(shape))
 
 
+def tangle(ctx: StageContext) -> None:
+    """The rules of perception/tangle.py on every masks-stage frame (CPU): the fighter pair,
+    standing or ground, who is on top, and which skeletons are clean."""
+    p = ctx.settings.perception
+    width = float(_video_json(ctx)["width"])
+    inst = pd.read_parquet(ctx.inputs["masks"] / "instances.parquet")
+    saved = np.load(ctx.inputs["masks"] / "masks.npz")
+    shape = (int(saved["shape"][0]), int(saved["shape"][1])) if len(inst) else (0, 0)
+    all_masks = unpack(saved["packed"], shape) if len(inst) else np.zeros((0, 1, 1), bool)
+    scale = p.masks_width / width
+    pairs: list[dict[str, object]] = []
+    skel: list[dict[str, object]] = []
+    for frame, g in inst.groupby("frame"):
+        rows = g.index.to_numpy()
+        m = all_masks[rows]
+        pair = fighter_pair(m, p.tangle_contact_px) if len(m) >= 2 else None
+        a, b, contact, post, top = -1, -1, 0, "none", -1
+        if pair is not None:
+            a, b, contact = pair
+            post = posture(m[a], m[b], p.tangle_ground_ratio)
+            if post == "ground":
+                t = top_of(m[a], m[b], p.tangle_top_margin)
+                top = -1 if t is None else (a, b)[t]
+        f = int(cast(int, frame))
+        pairs.append({"frame": f, "t": float(g["t"].iloc[0]), "a": a, "b": b,
+                      "contact": contact, "posture": post, "top": top})  # fmt: skip
+        for k, r in enumerate(g.itertuples()):
+            in_pair = k in (a, b)
+            other = m[b if k == a else a] if in_pair else np.delete(m, k, axis=0).any(axis=0)
+            clean = skeleton_clean(
+                np.asarray(r.kx, float),
+                np.asarray(r.ky, float),
+                np.asarray(r.kc, float),
+                m[k],
+                other,
+                scale,
+                p.kp_min_conf,
+            )
+            skel.append({"frame": f, "inst": int(cast(int, r.inst)), "in_pair": in_pair,
+                         "clean": clean})  # fmt: skip
+    pair_df = pd.DataFrame(pairs, columns=["frame", "t", "a", "b", "contact", "posture", "top"])
+    pair_df = pair_df.astype({"frame": "int64", "a": "int64", "b": "int64", "contact": "int64",
+                              "top": "int64", "t": "float64"})  # fmt: skip
+    validate(TANGLE_PAIRS_SCHEMA, pair_df, "tangle pairs").to_parquet(
+        ctx.out_dir / "pairs.parquet", index=False
+    )
+    skel_df = pd.DataFrame(skel, columns=["frame", "inst", "in_pair", "clean"])
+    skel_df = skel_df.astype({"frame": "int64", "inst": "int64", "in_pair": bool, "clean": bool})
+    validate(TANGLE_SKELETONS_SCHEMA, skel_df, "tangle skeletons").to_parquet(
+        ctx.out_dir / "skeletons.parquet", index=False
+    )
+
+
 def pose(ctx: StageContext) -> None:
     """Pose for everyone tracked in live shots, plus colour samples at gloves, shins, shorts."""
     p = ctx.settings.perception
@@ -633,6 +698,18 @@ REAL_PIPELINE: list[Stage] = [
             "perception.pose_model",
             "perception.pose_revision",
             "perception.half",
+        ),
+    ),
+    Stage(
+        "tangle",
+        tangle,
+        deps=("ingest", "masks"),
+        config_keys=(
+            "perception.masks_width",
+            "perception.kp_min_conf",
+            "perception.tangle_contact_px",
+            "perception.tangle_ground_ratio",
+            "perception.tangle_top_margin",
         ),
     ),
     Stage(
