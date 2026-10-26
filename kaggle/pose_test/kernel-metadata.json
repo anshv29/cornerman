@@ -1,0 +1,13 @@
+{
+  "id": "anshvaishnav29/cornerman-pose-test-job",
+  "title": "cornerman-pose-test-job",
+  "code_file": "job.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": []
+}
