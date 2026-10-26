@@ -22,6 +22,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 FRACTIONS = (0.15, 0.3, 0.45, 0.6, 0.75, 0.9)
 """Where in the video to grab frames, as fractions of its duration."""
 BAR_FROM = 0.75
@@ -71,9 +73,15 @@ class BarReader:
         img = cv2.imread(str(frame))
         if img is None:
             return []
+        return self.read_image(img)
+
+    def read_image(self, img: "np.ndarray", upscale: float = 2.0) -> list[str]:
+        """OCR lines in the bottom quarter of a BGR frame (upscaled: the division line is small)."""
+        import cv2
+
         strip = img[int(img.shape[0] * BAR_FROM) :]
-        strip = cv2.resize(strip, None, fx=2, fy=2)  # the division line is small
-        txts: list[object] = list(self._engine(strip).txts or [])
+        big = cv2.resize(strip, None, fx=upscale, fy=upscale) if upscale != 1.0 else strip
+        txts: list[object] = list(self._engine(big).txts or [])
         return [str(t) for t in txts]
 
 

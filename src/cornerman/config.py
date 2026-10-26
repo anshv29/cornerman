@@ -23,6 +23,9 @@ class PathsConfig(BaseModel):
     """fight_id -> video URL for the fights in this run. Never committed."""
     crops: Path = Path("data/crops")
     """Small person crops, one folder per fight. Local only: never committed, never in DVC."""
+    thumbs: Path = Path("data/thumbs")
+    """Small low-res frames every few seconds (arena stage), one folder per fight, for
+    by-eye checks of fighting time and fence geometry. Local only, like crops."""
     video_source: Path | None = None
     """A folder holding pre-downloaded videos named {fight_id}.mp4 (searched recursively),
     e.g. the private Kaggle dataset. Used before trying to download."""
@@ -98,6 +101,11 @@ class PerceptionConfig(BaseModel):
     """Fights whose identity confidence is below this are flagged (quality.json). 0.5 was
     chosen after the held-out test (the frozen 0.4 caught too few wrong fights), so it
     must be re-validated on the next fresh fights (DECISIONS.md, 2026-10-19)."""
+    arena_clock_every_s: float = Field(default=2.0, gt=0)
+    """Read the score bar's round clock this often (OCR is about a second a frame on CPU;
+    every 2 s still shows whether the clock is counting)."""
+    arena_thumb_every_s: float = Field(default=5.0, gt=0)
+    arena_thumb_width: int = Field(default=320, ge=32)
     identity_segment_min_s: float = Field(default=3.0, ge=0)
     """Shots with less fighting time than this are never usable on their own in a flagged
     fight: too few crops to judge (identity_segments)."""

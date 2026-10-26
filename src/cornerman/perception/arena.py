@@ -30,6 +30,7 @@ fight if their feet are on the mat, so:
 Frames with no mat region big enough (crowd shots, close-ups) keep nobody.
 """
 
+import re
 from collections.abc import Sequence
 
 import cv2
@@ -160,3 +161,43 @@ def on_mat(
             xs: list[float] = np.linspace(float(x1), float(x2), 9).tolist()
             keep.append(any(inside(x, y) for x in xs))
     return np.array(keep, dtype=bool)
+
+
+CLOCK = re.compile(r"(?<!\d)(\d{1,2})\s?[:.]\s?(\d{2})(?!\d)")
+BARE = re.compile(r"0?([0-5])([0-5]\d)")
+"""OCR often drops the colon ("0046"): a bare 3 or 4 digit token can be m:ss when the
+minutes are 0 to 5 (IMMAF rounds are 3 or 5 minutes), which no year can match."""
+ROUND = re.compile(r"\b(?:ROUND|RD|R)\s?(\d)\b|\b(\d)\s?(?:ST|ND|RD|TH)\b", re.IGNORECASE)
+
+
+def parse_clock(texts: Sequence[str]) -> tuple[float | None, int | None]:
+    """(clock in seconds, round) from the score bar's OCR lines, None where not found.
+
+    IMMAF bars show the round clock as "02:43" (sometimes "2.43") and the round as
+    "ROUND 2", "RD2", "R2" or "2ND". The clock is the first mm:ss with seconds
+    under 60 and at most 10 minutes; a bar can also hold a date or a weight, which
+    don't match this shape. Failing that, a whole token like "0046" (see BARE).
+    """
+    return _clock(texts), _round(texts)
+
+
+def _clock(texts: Sequence[str]) -> float | None:
+    for line in texts:
+        for m in CLOCK.finditer(line):
+            mm, ss = int(m.group(1)), int(m.group(2))
+            if ss < 60 and mm <= 10:
+                return float(mm * 60 + ss)
+    for line in texts:
+        for token in line.split():
+            m = BARE.fullmatch(token)
+            if m:
+                return float(int(m.group(1)) * 60 + int(m.group(2)))
+    return None
+
+
+def _round(texts: Sequence[str]) -> int | None:
+    for line in texts:
+        r = ROUND.search(line)
+        if r:
+            return int(r.group(1) or r.group(2))
+    return None

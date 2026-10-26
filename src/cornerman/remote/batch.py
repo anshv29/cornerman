@@ -65,17 +65,35 @@ def build_values(batch: pd.DataFrame, config: Path, overlays: int) -> dict[str, 
     }
 
 
+def arena_todo(derived: Path, n: int, hold: Path = HOLD_CSV) -> list[str]:
+    """Processed fights (identity done) with no arena output yet, not on hold; at most n."""
+    held = held_fights(hold)
+    todo = sorted(
+        f
+        for f in done_fights(derived)
+        if f not in held and not (derived / f / "arena" / "manifest.json").exists()
+    )
+    return todo[:n] if n else todo
+
+
 def import_outputs(
-    src: Path, derived: Path, overlays: Path, logs: Path, crops: Path | None = None
+    src: Path,
+    derived: Path,
+    overlays: Path,
+    logs: Path,
+    crops: Path | None = None,
+    final_stage: str = FINAL_STAGE,
+    thumbs: Path | None = None,
 ) -> list[str]:
     """Copy a pulled job output into data/. Returns the fights that finished.
 
-    Person crops go to `crops` (local only, never committed or put in DVC).
-    Stage folders the job didn't write are kept.
+    A fight is finished when `final_stage` has a manifest. Person crops go to
+    `crops` and arena thumbnails to `thumbs` (local only, never committed or put
+    in DVC). Stage folders the job didn't write are kept.
     """
     finished: list[str] = []
     for fight in sorted((src / "derived").glob("*")):
-        if not (fight / FINAL_STAGE / "manifest.json").exists():
+        if not (fight / final_stage / "manifest.json").exists():
             continue
         # Replace only the stages the job wrote; stages run on the laptop
         # (crop features, identity) stay.
@@ -92,6 +110,10 @@ def import_outputs(
             elif (src / "crops" / fight.name).exists():
                 shutil.rmtree(crops / fight.name, ignore_errors=True)
                 shutil.copytree(src / "crops" / fight.name, crops / fight.name)
+        zipped_thumbs = src / "thumbs" / f"{fight.name}.zip"
+        if thumbs is not None and zipped_thumbs.exists():
+            shutil.rmtree(thumbs / fight.name, ignore_errors=True)
+            shutil.unpack_archive(zipped_thumbs, thumbs / fight.name)
     if (src / "overlays").exists():
         overlays.mkdir(parents=True, exist_ok=True)
         for clip in (src / "overlays").glob("*.mp4"):

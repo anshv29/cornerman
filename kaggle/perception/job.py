@@ -40,7 +40,7 @@ LOG = WORK / "job_log.json"
 
 
 def install() -> None:
-    pkgs = [f"cornerman[gpu] @ git+{REPO}@{COMMIT}", "yt-dlp[default]", "deno"]
+    pkgs = [f"cornerman[gpu,collect] @ git+{REPO}@{COMMIT}", "yt-dlp[default]", "deno"]
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", *pkgs], check=True)
 
 

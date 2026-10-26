@@ -29,6 +29,7 @@ pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
         "data/quarantine/x.json",
         "data/anything_new.csv",
         "data/crops/ft_x/000001_0000010.jpg",
+        "data/thumbs/ft_x/0000010.jpg",
         "kaggle/build/perception_output/crops/a.jpg",
         "clip.mp4",
     ],

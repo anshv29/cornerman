@@ -14,7 +14,7 @@ needs no GPU; crop_features uses one if there is one.
 
 import json
 import shutil
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import cv2
@@ -23,6 +23,8 @@ import pandas as pd
 
 from cornerman.config import Settings
 from cornerman.contracts.perception import (
+    CLOCK_SCHEMA,
+    HULL_SCHEMA,
     IDENTITY_SCHEMA,
     POSES_SCHEMA,
     ROLES_SCHEMA,
@@ -35,7 +37,7 @@ from cornerman.perception import crop_features as cf
 from cornerman.perception import models
 from cornerman.perception.activity import fighting_frames
 from cornerman.perception.appearance import N_FEATURES, box_features
-from cornerman.perception.arena import mat_colour, mat_hull, on_mat, shot_colour
+from cornerman.perception.arena import mat_colour, mat_hull, on_mat, parse_clock, shot_colour
 from cornerman.perception.decode import (
     FrameCache,
     cached_indices,
@@ -228,6 +230,71 @@ def tracking(ctx: StageContext) -> None:
     )
 
 
+def bar_reader() -> Callable[[np.ndarray], list[str]]:
+    """OCR for the score bar (rapidocr, the `collect` extra). Tests replace this."""
+    from cornerman.collect.screen import BarReader
+
+    reader = BarReader()
+    return lambda img: reader.read_image(img, upscale=1.0)  # clock digits are large
+
+
+def arena(ctx: StageContext) -> None:
+    """Where the mat is in every sampled frame, the round clock, and a few thumbnails.
+
+    No GPU. The mat outline is the same hull the cage mask uses in tracking (same
+    canvas colour per shot), kept this time so fence distances can be measured.
+    The clock is read from the score bar every `arena_clock_every_s`; only the
+    parsed clock and round are stored, never the OCR text (the bar shows names).
+    """
+    p = ctx.settings.perception
+    video = _video_json(ctx)
+    fps = float(video["fps"])
+    info = probe(ensure_video(ctx.settings, ctx.fight_id))
+    if (info.n_frames, info.width, info.height) != (
+        video["n_frames"],
+        video["width"],
+        video["height"],
+    ):
+        raise QuarantineError("not the video the pipeline processed (frames or size differ)")
+    shot_df = pd.read_parquet(ctx.inputs["shots"] / "shots.parquet")
+    cache = ensure_frames(ctx.settings, ctx.fight_id, fps)
+    canvas = CanvasColours(cache, shot_df, p.mat_shot_shift)
+    shot_ids = shot_of_frame(shot_df, np.array(cached_indices(cache)))
+    every_clock = max(1, round(p.arena_clock_every_s * fps / cache.step))
+    every_thumb = max(1, round(p.arena_thumb_every_s * fps / cache.step))
+    thumbs = ctx.settings.paths.thumbs / ctx.fight_id
+    shutil.rmtree(thumbs, ignore_errors=True)
+    thumbs.mkdir(parents=True)
+    read = bar_reader()
+    hulls: list[dict[str, object]] = []
+    clocks: list[dict[str, object]] = []
+    for k, (i, frame) in enumerate(iter_cached(cache, depth=p.prefetch)):
+        h, w = frame.shape[:2]
+        shot_id = int(shot_ids[k])
+        if shot_id >= 0:
+            hull = mat_hull(frame, canvas.of(shot_id), p.mat_delta, p.mat_min_area)
+            pts = hull.reshape(-1, 2) if hull is not None else np.zeros((0, 2), np.float32)
+            hulls.append(
+                {
+                    "frame": i,
+                    "shot_id": shot_id,
+                    "x": (pts[:, 0] / w).round(4).tolist(),
+                    "y": (pts[:, 1] / h).round(4).tolist(),
+                }
+            )
+        if k % every_clock == 0:
+            clock, rnd = parse_clock(read(frame))
+            clocks.append({"frame": i, "t": i / fps, "clock_s": clock, "round": rnd})
+        if k % every_thumb == 0:
+            small = cv2.resize(frame, (p.arena_thumb_width, round(h * p.arena_thumb_width / w)))
+            cv2.imwrite(str(thumbs / f"{i:07d}.jpg"), small, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    hull_df = pd.DataFrame(hulls, columns=["frame", "shot_id", "x", "y"])
+    validate(HULL_SCHEMA, hull_df, "hull").to_parquet(ctx.out_dir / "hull.parquet", index=False)
+    clock_df = pd.DataFrame(clocks, columns=["frame", "t", "clock_s", "round"])
+    clock_df = clock_df.astype({"clock_s": "float64", "round": "Int64"})
+    validate(CLOCK_SCHEMA, clock_df, "clock").to_parquet(ctx.out_dir / "clock.parquet", index=False)
+
+
 def pose(ctx: StageContext) -> None:
     """Pose for everyone tracked in live shots, plus colour samples at gloves, shins, shorts."""
     p = ctx.settings.perception
@@ -414,6 +481,20 @@ REAL_PIPELINE: list[Stage] = [
             "perception.live_min_frac",
             "perception.crop_every_s",
             "perception.crop_height",
+        ),
+    ),
+    Stage(
+        "arena",
+        arena,
+        deps=("ingest", "shots"),
+        config_keys=(
+            "perception.fps",
+            "perception.mat_delta",
+            "perception.mat_min_area",
+            "perception.mat_shot_shift",
+            "perception.arena_clock_every_s",
+            "perception.arena_thumb_every_s",
+            "perception.arena_thumb_width",
         ),
     ),
     Stage(

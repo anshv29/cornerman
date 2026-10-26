@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("cv2")
 
 from cornerman.perception.activity import fighting_frames
-from cornerman.perception.arena import mat_colour, mat_hull, on_mat, shot_colour
+from cornerman.perception.arena import mat_colour, mat_hull, on_mat, parse_clock, shot_colour
 
 H, W = 360, 640
 CANVAS = (235, 200, 140)  # light blue, BGR
@@ -117,3 +117,22 @@ def test_kit_colour_reads_gloves_shins_and_shorts() -> None:
     assert glove_red[4] >= 5
     shin = next(g for g in got if g[0] == "shin")
     assert shin[3] < 100  # low b = blue
+
+
+@pytest.mark.parametrize(
+    ("texts", "want"),
+    [
+        (["01:38", "ROUND 1", "FIGHTWEEK", "IMMAF"], (98.0, 1)),
+        (["CEN", "2.43 RD2"], (163.0, 2)),
+        (["R3", "00:05"], (5.0, 3)),
+        (["2ND", "0:59"], (59.0, 2)),
+        (["IMMAF"], (None, None)),
+        (["61.2 kg", "12:30"], (None, None)),  # a weight, then a time of day past 10 minutes
+        (["03:75", "03:00"], (180.0, None)),  # seconds over 59 can't be a clock
+        (["FIN", "0046", "ROUND 2"], (46.0, 2)),  # OCR dropped the colon
+        (["246"], (166.0, None)),
+        (["2022", "IMMAF"], (None, None)),  # a year is not a clock
+    ],
+)
+def test_parse_clock(texts: list[str], want: tuple[float | None, int | None]) -> None:
+    assert parse_clock(texts) == want

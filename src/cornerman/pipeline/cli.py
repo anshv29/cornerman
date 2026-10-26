@@ -27,6 +27,7 @@ from cornerman.remote import batch, kaggle, videos
 
 KAGGLE_BUILD = Path("kaggle/build")
 PERCEPTION_KERNEL = Path("kaggle/perception")
+ARENA_KERNEL = Path("kaggle/arena")
 VLM_KERNEL = Path("kaggle/vlm")
 VLMS: dict[str, dict[str, object]] = {
     "2b": {"name": "Qwen/Qwen3-VL-2B-Instruct",
@@ -113,6 +114,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="attach the videos dataset already on Kaggle instead of uploading again",
     )
+    p_ab = kg.add_parser(
+        "arena-batch", help="upload processed fights' videos and run the CPU arena job"
+    )
+    p_ab.add_argument("--config", type=Path, default=Path("configs/kaggle_real.yaml"))
+    p_ab.add_argument("--fights-csv", type=Path, default=Path("data/fights.csv"))
+    p_ab.add_argument("--n", type=int, default=0, help="next n fights without arena output")
+    p_ab.add_argument("--fight", action="append", default=[], help="these fights")
+    kg.add_parser("arena-import", help="pull the arena job's output, delete its dataset")
     p_import = kg.add_parser("import", help="pull the GPU job's output into data/")
     p_import.add_argument("--data", type=Path, default=Path("data"))
     p_import.add_argument(
@@ -291,6 +300,30 @@ def _push(
     print(f"pushed {kaggle.read_kernel_metadata(folder)['id']}, confirmed private on Kaggle")
 
 
+def _arena_batch(args: argparse.Namespace) -> int:
+    derived = Path("data/derived")
+    ids: list[str] = args.fight or batch.arena_todo(derived, args.n)
+    if not ids:
+        print("no fights to run")
+        return 1
+    fights = pd.read_csv(args.fights_csv)
+    chosen = fights[fights["fight_id"].isin(ids)]
+    settings = load_settings(args.config)
+    shutil.rmtree(KAGGLE_BUILD / "arena_output", ignore_errors=True)
+    ref, status = videos.stage_arena(
+        chosen, derived, _kaggle_user(), Path("data/raw/upload"), settings.perception.max_height
+    )
+    ok = [f for f, s in status.items() if s in ("same file", "same frames")]
+    print(f"{len(ok)} of {len(status)} videos match what was processed; uploaded to {ref}")
+    if not ok:
+        return 1
+    values = batch.build_values(chosen[chosen["fight_id"].isin(ok)], args.config, 0)
+    values["FIGHTS"] = ok
+    values.pop("OVERLAYS", None)
+    _push(ARENA_KERNEL, values, {"dataset_sources": [ref]})
+    return 0
+
+
 def _kaggle(args: argparse.Namespace) -> int:
     if args.kaggle_command == "batch":
         fights = pd.read_csv(args.fights_csv)
@@ -319,6 +352,26 @@ def _kaggle(args: argparse.Namespace) -> int:
             print(f"uploaded {len(chosen)} videos to {ref}, confirmed private")
             metadata["dataset_sources"] = [ref]
         _push(PERCEPTION_KERNEL, values, metadata)
+        return 0
+    if args.kaggle_command == "arena-batch":
+        return _arena_batch(args)
+    if args.kaggle_command == "arena-import":
+        src = kaggle.pull_output(
+            str(kaggle.read_kernel_metadata(ARENA_KERNEL)["id"]), KAGGLE_BUILD / "arena_output"
+        )
+        done = batch.import_outputs(
+            src,
+            Path("data/derived"),
+            Path("data/overlays"),
+            Path("data/logs"),
+            final_stage="arena",
+            thumbs=Path("data/thumbs"),
+        )
+        print(f"imported arena output for {len(done)} fights")
+        ref = f"{_kaggle_user()}/{videos.ARENA_SLUG}"
+        if kaggle.dataset_exists(ref):
+            kaggle.delete_dataset(ref)
+            print(f"deleted {ref}, so no raw video stays on Kaggle")
         return 0
     if args.kaggle_command == "import":
         data: Path = args.data

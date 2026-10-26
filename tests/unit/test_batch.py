@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from cornerman.remote.batch import done_fights, import_outputs, select_fights
+from cornerman.remote.batch import arena_todo, done_fights, import_outputs, select_fights
 
 
 def _finish(derived: Path, fight: str) -> None:
@@ -51,3 +51,33 @@ def test_import_copies_only_finished_fights(tmp_path: Path) -> None:
     assert (data / "overlays" / "ft_done.mp4").exists()
     assert (data / "logs" / "job_log_000.json").exists()
     assert (data / "crops" / "ft_done" / "000001_0000010.jpg").exists()
+
+
+def test_arena_todo_and_import(tmp_path: Path) -> None:
+    derived = tmp_path / "derived"
+    for fid in ("ft_a", "ft_b", "ft_c"):
+        (derived / fid / "identity").mkdir(parents=True)
+        (derived / fid / "identity" / "manifest.json").write_text("{}")
+    (derived / "ft_a" / "arena").mkdir()
+    (derived / "ft_a" / "arena" / "manifest.json").write_text("{}")
+    hold = tmp_path / "hold.csv"
+    hold.write_text("fight_id,reason\nft_c,division not shown\n")
+    assert arena_todo(derived, 0, hold) == ["ft_b"]  # a has arena, c is on hold
+
+    src = tmp_path / "out"
+    (src / "derived" / "ft_b" / "arena").mkdir(parents=True)
+    (src / "derived" / "ft_b" / "arena" / "manifest.json").write_text("{}")
+    (src / "derived" / "ft_b" / "arena" / "hull.parquet").write_text("x")
+    thumbs_src = tmp_path / "t" / "ft_b"
+    thumbs_src.mkdir(parents=True)
+    (thumbs_src / "0000000.jpg").write_text("jpg")
+    (src / "thumbs").mkdir()
+    shutil.make_archive(str(src / "thumbs" / "ft_b"), "zip", thumbs_src)
+    thumbs = tmp_path / "thumbs"
+    done = import_outputs(
+        src, derived, tmp_path / "ov", tmp_path / "logs", final_stage="arena", thumbs=thumbs
+    )
+    assert done == ["ft_b"]
+    assert (derived / "ft_b" / "arena" / "hull.parquet").exists()
+    assert (derived / "ft_b" / "identity" / "manifest.json").exists()  # untouched
+    assert (thumbs / "ft_b" / "0000000.jpg").exists()

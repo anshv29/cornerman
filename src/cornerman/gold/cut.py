@@ -124,12 +124,11 @@ def cut_all(
     frame count, frame rate and size (a remux can change the bytes but not the
     frames). A fight that doesn't match is skipped and reported.
     """
-    import hashlib
     import json
 
     from cornerman.contracts.perception import fighter_boxes, load_roles
-    from cornerman.perception.video import frame_step, probe
-    from cornerman.remote.videos import download
+    from cornerman.perception.video import frame_step
+    from cornerman.remote.videos import download, matches_processed
 
     rows: list[dict[str, object]] = []
     for fid, group in clips.groupby("fight_id"):
@@ -143,14 +142,9 @@ def cut_all(
         video = work / f"{fid}.mp4"
         try:
             download(urls[fid], video, max_height)
-            same = hashlib.sha256(video.read_bytes()).hexdigest() == info["sha256"]
-            p = probe(video)
-            frames_match = (p.n_frames, p.width, p.height) == (
-                info["n_frames"],
-                info["width"],
-                info["height"],
-            ) and abs(p.fps - float(info["fps"])) < 1e-3
-            if not (same or frames_match):
+            match = matches_processed(video, info)
+            same = match == "same file"
+            if match is None:
                 rows.append({"fight_id": fid, "status": "different video", "clips": 0})
                 print(rows[-1], flush=True)
                 continue

@@ -53,6 +53,30 @@ ROLES_SCHEMA = pa.DataFrameSchema(
 """One role per tracked box. A tracklet can change role (tracker ID switches in tangles)."""
 
 
+HULL_SCHEMA = pa.DataFrameSchema(
+    {
+        "frame": pa.Column(int, pa.Check.ge(0), unique=True),  # pyright: ignore[reportUnknownMemberType]
+        "shot_id": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "x": pa.Column(object),
+        "y": pa.Column(object),
+    },
+    strict=True,
+)
+"""The mat outline per sampled frame in a shot (arena stage): hull corners as fractions of
+the frame width (x) and height (y). Empty lists where no mat was found."""
+
+CLOCK_SCHEMA = pa.DataFrameSchema(
+    {
+        "frame": pa.Column(int, pa.Check.ge(0), unique=True),  # pyright: ignore[reportUnknownMemberType]
+        "t": pa.Column(float, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "clock_s": pa.Column(float, pa.Check.in_range(0, 600), nullable=True),  # pyright: ignore[reportUnknownMemberType]
+        "round": pa.Column("Int64", pa.Check.in_range(1, 9), nullable=True),  # pyright: ignore[reportUnknownMemberType]
+    },
+    strict=True,
+)
+"""The score bar's round clock and round (arena stage), None where not read."""
+
+
 def _ordered_segment(df: pd.DataFrame) -> pd.Series:
     return df["end"] >= df["start"]
 

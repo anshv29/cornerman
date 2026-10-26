@@ -16,7 +16,7 @@ cv2 = pytest.importorskip("cv2")
 pytest.importorskip("trackers")
 
 from cornerman.config import PathsConfig, PerceptionConfig, Settings  # noqa: E402
-from cornerman.perception import models  # noqa: E402
+from cornerman.perception import models, stages  # noqa: E402
 from cornerman.perception.identity import Probe  # noqa: E402
 from cornerman.perception.stages import REAL_PIPELINE  # noqa: E402
 from cornerman.pipeline.runner import Status, run  # noqa: E402
@@ -99,11 +99,16 @@ def _fake_embed(
     return out / np.maximum(np.linalg.norm(out, axis=1, keepdims=True), 1e-6)
 
 
+def _fake_bar(img: np.ndarray) -> list[str]:
+    return ["02:43", "ROUND 2"]
+
+
 def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(models, "cut_probabilities", _fake_cuts)
     monkeypatch.setattr(models, "detect_people", _fake_detect)
     monkeypatch.setattr(models, "estimate_poses", _fake_pose)
     monkeypatch.setattr(models, "embed_crops", _fake_embed)
+    monkeypatch.setattr(stages, "bar_reader", lambda: _fake_bar)
     # Fighter score from the green channel: red (255, 0, 0) and blue (0, 0, 255) people
     # have none, the grey referee has some.
     w = np.zeros(384)
@@ -116,6 +121,7 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
             quarantine=tmp_path / "quarantine",
             raw=tmp_path / "raw",
             crops=tmp_path / "crops",
+            thumbs=tmp_path / "thumbs",
             manifest=tmp_path / "manifest.json",
         ),
         perception=PerceptionConfig(
@@ -128,6 +134,8 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
             fight_window_s=1.0,
             fight_min_gap_s=0.0,
             fight_min_run_s=0.0,
+            arena_clock_every_s=1.0,
+            arena_thumb_every_s=2.0,
         ),
     )
     _write_video(tmp_path / "raw" / "ft_test" / "video.mp4")
@@ -169,6 +177,18 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
     assert {"dup", "fighter_prob_min", "rb_share", "closest"} <= set(quality["checks"])
     feats = np.load(d / "crop_features" / "features.npy")
     assert len(feats) == len(pd.read_parquet(d / "crop_features" / "crops.parquet"))
+
+    # Arena: a mat outline in every sampled frame of a shot, the clock every second,
+    # a thumbnail every 2 s.
+    hull = pd.read_parquet(d / "arena" / "hull.parquet")
+    assert len(hull) == (frames["shot_id"] >= 0).sum()
+    assert all(len(x) >= 3 for x in hull["x"])
+    ys = np.concatenate(hull["y"].to_list())
+    assert ys.min() == pytest.approx(140 / SIZE[1], abs=0.05)  # the canvas starts at y=140
+    clock = pd.read_parquet(d / "arena" / "clock.parquet")
+    assert len(clock) == N // FPS
+    assert (clock["clock_s"] == 163.0).all() and (clock["round"] == 2).all()
+    assert len(list((tmp_path / "thumbs" / "ft_test").glob("*.jpg"))) == N // (2 * FPS)
 
     # Second run is fully cached.
     again = run(REAL_PIPELINE, settings, ["ft_test"])
