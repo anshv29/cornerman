@@ -65,6 +65,29 @@ HULL_SCHEMA = pa.DataFrameSchema(
 """The mat outline per sampled frame in a shot (arena stage): hull corners as fractions of
 the frame width (x) and height (y). Empty lists where no mat was found."""
 
+MASK_INSTANCES_SCHEMA = pa.DataFrameSchema(
+    {
+        "frame": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "t": pa.Column(float, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "inst": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "x1": pa.Column(float),
+        "y1": pa.Column(float),
+        "x2": pa.Column(float),
+        "y2": pa.Column(float),
+        "score": pa.Column(float, pa.Check.in_range(0, 1)),  # pyright: ignore[reportUnknownMemberType]
+        "area": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
+        "kx": pa.Column(object),
+        "ky": pa.Column(object),
+        "kc": pa.Column(object),
+    },
+    strict=True,
+    unique=["frame", "inst"],
+)
+"""One row per person on the mat in a masks-stage frame (every masks_every_s where the mat
+shows): box in pixels, detector score, mask area in stored-mask pixels, and the 17 COCO
+keypoints (x, y in pixels, confidence) from pose with the other people greyed out. Row k
+goes with row k of masks.npz."""
+
 CLOCK_SCHEMA = pa.DataFrameSchema(
     {
         "frame": pa.Column(int, pa.Check.ge(0), unique=True),  # pyright: ignore[reportUnknownMemberType]

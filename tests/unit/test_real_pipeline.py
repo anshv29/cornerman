@@ -70,6 +70,25 @@ def _fake_detect(
     return out
 
 
+def _fake_segment(
+    frames: list[np.ndarray], name: str, threshold: float, half: bool = False
+) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    out: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+    for frame in frames:
+        masks = [
+            np.all(np.abs(frame.astype(int) - colour) < 40, axis=2)
+            for colour in [c for c, _ in PEOPLE] + [SPECTATOR]
+        ]
+        masks = [m for m in masks if m.any()]
+        boxes = [
+            [float(xs.min()), float(ys.min()), xs.max() + 1.0, ys.max() + 1.0]
+            for ys, xs in (np.nonzero(m) for m in masks)
+        ]
+        stack = np.array(masks, dtype=bool).reshape(-1, *frame.shape[:2])
+        out.append((np.array(boxes, dtype=float).reshape(-1, 4), np.full(len(boxes), 0.9), stack))
+    return out
+
+
 def _fake_pose(
     frames: list[np.ndarray],
     boxes: list[np.ndarray],
@@ -115,6 +134,7 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr(models, "cut_probabilities", _fake_cuts)
     monkeypatch.setattr(models, "detect_people", _fake_detect)
     monkeypatch.setattr(models, "estimate_poses", _fake_pose)
+    monkeypatch.setattr(models, "segment_people", _fake_segment)
     monkeypatch.setattr(models, "embed_crops", _fake_embed)
     monkeypatch.setattr(stages, "bar_reader", _fake_bar)
     # Fighter score from the green channel: red (255, 0, 0) and blue (0, 0, 255) people
@@ -144,6 +164,8 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
             fight_min_run_s=0.0,
             arena_clock_every_s=1.0,
             arena_thumb_every_s=2.0,
+            masks_every_s=0.5,
+            masks_width=80,
         ),
     )
     _write_video(tmp_path / "raw" / "ft_test" / "video.mp4")
@@ -202,6 +224,21 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
     assert (v2["clock"] == "running").mean() > 0.9
     assert v2["fighting"].mean() > 0.8
     assert len(list((tmp_path / "thumbs" / "ft_test").glob("*.jpg"))) == N // (2 * FPS)
+
+    # Masks every 0.5 s where the mat shows: the three people on the canvas, not the
+    # spectator, each with a mask and a skeleton.
+    from cornerman.perception.tangle import unpack
+
+    inst = pd.read_parquet(d / "masks" / "instances.parquet")
+    with_mat = set(hull.loc[hull["x"].map(len) >= 3, "frame"])
+    assert set(inst["frame"]) == set(range(0, N, 5)) & with_mat
+    assert inst.groupby("frame").size().eq(3).all()
+    assert all(len(k) == 17 for k in inst["kx"])
+    saved = np.load(d / "masks" / "masks.npz")
+    shape = tuple(int(v) for v in saved["shape"])
+    assert shape == (60, 80)
+    m = unpack(saved["packed"], (shape[0], shape[1]))
+    assert len(m) == len(inst) and (m.sum((1, 2)) == inst["area"].to_numpy()).all()
 
     # Second run is fully cached.
     again = run(REAL_PIPELINE, settings, ["ft_test"])

@@ -26,6 +26,7 @@ from cornerman.contracts.perception import (
     CLOCK_SCHEMA,
     HULL_SCHEMA,
     IDENTITY_SCHEMA,
+    MASK_INSTANCES_SCHEMA,
     POSES_SCHEMA,
     ROLES_SCHEMA,
     SEGMENTS_SCHEMA,
@@ -59,6 +60,7 @@ from cornerman.perception.identity import (
 from cornerman.perception.kitcolour import COLUMNS as SAMPLE_COLUMNS
 from cornerman.perception.kitcolour import empty_samples, sample_person
 from cornerman.perception.shots import shot_of_frame, shots_from_probs
+from cornerman.perception.tangle import grey_others, pack, small_mask
 from cornerman.perception.video import Frame, ensure_video, frame_step, probe
 from cornerman.pipeline.hashing import hash_file
 from cornerman.pipeline.stage import QuarantineError, Stage, StageContext
@@ -293,6 +295,89 @@ def arena(ctx: StageContext) -> None:
     clock_df = pd.DataFrame(clocks, columns=["frame", "t", "clock_s", "round"])
     clock_df = clock_df.astype({"clock_s": "float64", "round": "Int64"})
     validate(CLOCK_SCHEMA, clock_df, "clock").to_parquet(ctx.out_dir / "clock.parquet", index=False)
+
+
+def masks(ctx: StageContext) -> None:
+    """Person masks and a skeleton per person, every `masks_every_s` where the mat shows.
+
+    For clinch and ground frames, where boxes merge and plain pose draws one skeleton
+    across two bodies (perception/tangle.py). Every frame with a mat outline is covered,
+    live shot or not, so the rules can be rerun on the laptop without the GPU. Pose for
+    each person runs with every other person's pixels greyed out.
+    """
+    p = ctx.settings.perception
+    fps = float(_video_json(ctx)["fps"])
+    hull_df = pd.read_parquet(ctx.inputs["arena"] / "hull.parquet")
+    hulls = {
+        int(f): (np.asarray(x, float), np.asarray(y, float))
+        for f, x, y in zip(hull_df["frame"], hull_df["x"], hull_df["y"], strict=True)
+        if len(x) >= 3
+    }
+    cache = ensure_frames(ctx.settings, ctx.fight_id, fps)
+    every = max(1, round(p.masks_every_s * fps / cache.step))
+    wanted = set(cached_indices(cache)[::every]) & set(hulls)
+    device = models.pick_device(p.device)
+    rows: list[dict[str, object]] = []
+    small: list[np.ndarray] = []
+    shape = (0, 0)
+    n_inst: dict[int, int] = {}
+    for batch in _batched(iter_cached(cache, wanted=wanted, depth=p.prefetch), p.masks_batch):
+        segs = models.segment_people([f for _, f in batch], p.seg_model, p.det_threshold, p.half)
+        images: list[np.ndarray] = []
+        boxes: list[np.ndarray] = []
+        owners: list[tuple[int, np.ndarray, float, np.ndarray]] = []
+        for (i, frame), (b, c, m) in zip(batch, segs, strict=True):
+            h, w = frame.shape[:2]
+            hx, hy = hulls[i]
+            hull = np.column_stack([hx * w, hy * h]).astype(np.float32).reshape(-1, 1, 2)
+            keep = (b[:, 3] - b[:, 1] >= p.min_person_height * h) & on_mat(
+                hull, b, p.mat_margin * h, h, p.mat_cut
+            )
+            b, c, m = b[keep], c[keep], m[keep]
+            for k in range(len(b)):
+                images.append(grey_others(frame, m, k))
+                boxes.append(b[[k]])
+                owners.append((i, b[k], float(c[k]), m[k]))
+        for start in range(0, len(images), p.pose_batch):
+            results = models.estimate_poses(
+                images[start : start + p.pose_batch],
+                boxes[start : start + p.pose_batch],
+                p.pose_model,
+                p.pose_revision,
+                device,
+                p.half,
+            )
+            for (i, box, score, mask), (kps, sc) in zip(
+                owners[start : start + p.pose_batch], results, strict=True
+            ):
+                sm = small_mask(mask, p.masks_width)
+                shape = sm.shape
+                small.append(sm)
+                n_inst[i] = n_inst.get(i, -1) + 1
+                rows.append(
+                    {
+                        "frame": i,
+                        "t": i / fps,
+                        "inst": n_inst[i],
+                        "x1": float(box[0]),
+                        "y1": float(box[1]),
+                        "x2": float(box[2]),
+                        "y2": float(box[3]),
+                        "score": min(1.0, max(0.0, score)),
+                        "area": int(sm.sum()),
+                        "kx": kps[0, :, 0].round(1).tolist(),
+                        "ky": kps[0, :, 1].round(1).tolist(),
+                        "kc": np.clip(sc[0], 0, 1).round(3).tolist(),
+                    }
+                )
+    cols = ["frame", "t", "inst", "x1", "y1", "x2", "y2", "score", "area", "kx", "ky", "kc"]
+    inst = pd.DataFrame(rows, columns=cols).astype(
+        {"frame": "int64", "inst": "int64", "area": "int64", "t": "float64", "score": "float64"}
+    )
+    validate(MASK_INSTANCES_SCHEMA, inst, "mask instances").to_parquet(
+        ctx.out_dir / "instances.parquet", index=False
+    )
+    np.savez_compressed(ctx.out_dir / "masks.npz", packed=pack(small), shape=np.array(shape))
 
 
 def pose(ctx: StageContext) -> None:
@@ -530,6 +615,24 @@ REAL_PIPELINE: list[Stage] = [
             "perception.arena_clock_every_s",
             "perception.arena_thumb_every_s",
             "perception.arena_thumb_width",
+        ),
+    ),
+    Stage(
+        "masks",
+        masks,
+        deps=("ingest", "shots", "tracking", "arena"),
+        config_keys=(
+            "perception.fps",
+            "perception.seg_model",
+            "perception.det_threshold",
+            "perception.min_person_height",
+            "perception.mat_margin",
+            "perception.mat_cut",
+            "perception.masks_every_s",
+            "perception.masks_width",
+            "perception.pose_model",
+            "perception.pose_revision",
+            "perception.half",
         ),
     ),
     Stage(

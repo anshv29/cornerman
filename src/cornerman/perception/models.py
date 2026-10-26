@@ -76,6 +76,42 @@ def detect_people(
     return out
 
 
+@cache
+def _segmenter(name: str, half: bool) -> Any:
+    import torch
+    from rfdetr import RFDETRSegLarge
+
+    models: dict[str, Any] = {"rfdetr-seg-large": RFDETRSegLarge}
+    model = models[name]()
+    if half and torch.cuda.is_available():
+        model.inference(compile=False, dtype=torch.float16, inplace=True)
+    return model
+
+
+def segment_people(
+    frames: list[Frame], name: str, threshold: float, half: bool = False
+) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """For each BGR frame: (boxes x1 y1 x2 y2, confidences, masks (n, H, W) bool), people only.
+
+    The RF-DETR segmentation variant gives each person a pixel mask, which tells
+    tangled bodies apart better than boxes (DECISIONS.md, pose on tangled shots).
+    """
+    model = _segmenter(name, half)
+    rgb = [np.ascontiguousarray(f[:, :, ::-1]) for f in frames]
+    raw_preds: Any = model.predict(rgb, threshold=threshold)
+    preds = cast(list[Any], raw_preds if isinstance(raw_preds, list) else [raw_preds])
+    out: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+    for f, p in zip(frames, preds, strict=True):
+        keep = np.asarray(p.class_id) == PERSON  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        boxes = np.asarray(p.xyxy, dtype=float)[keep]  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        conf = np.asarray(p.confidence, dtype=float)[keep]  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        raw: Any = p.mask  # pyright: ignore[reportUnknownMemberType]
+        h, w = f.shape[:2]
+        masks = np.zeros((0, h, w), bool) if raw is None else np.asarray(raw, dtype=bool)[keep]
+        out.append((boxes, conf, masks))
+    return out
+
+
 class ShotTracker:
     """BoT-SORT, restarted at every camera cut so no track spans two shots."""
 

@@ -122,6 +122,12 @@ class PerceptionConfig(BaseModel):
     every 2 s still shows whether the clock is counting)."""
     arena_thumb_every_s: float = Field(default=5.0, gt=0)
     arena_thumb_width: int = Field(default=320, ge=32)
+    seg_model: str = "rfdetr-seg-large"
+    """Person masks for clinch and ground frames (masks stage). Apache 2.0, like the detector."""
+    masks_every_s: float = Field(default=0.5, gt=0)
+    masks_width: int = Field(default=320, ge=32)
+    """Masks are stored at this width (a quarter of 720p's 1280), as packed bits."""
+    masks_batch: int = Field(default=8, ge=1)
     identity_segment_min_s: float = Field(default=3.0, ge=0)
     """Shots with less fighting time than this are never usable on their own in a flagged
     fight: too few crops to judge (identity_segments)."""
