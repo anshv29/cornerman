@@ -2,8 +2,8 @@
 
 Runs as a private Kaggle script kernel without a GPU, so it uses no GPU quota.
 `cornerman kaggle arena-batch` uploads a private dataset holding each fight's
-video (videos/{fight_id}.mp4, checked on the laptop to be the video that was
-processed) and its ingest and shots stage folders (derived/{fight_id}/...).
+video ({fight_id}.mp4, checked on the laptop to be the video that was processed)
+and its ingest and shots stage files, flat (the CLI skips folders).
 With those in place the runner sees ingest and shots as cached and runs only
 arena. The fight list, config and commit are filled in at build time.
 
@@ -40,15 +40,14 @@ def install() -> None:
 
 
 def stage_inputs() -> None:
-    """Copy each fight's ingest and shots folders from the dataset into derived/."""
-    for fid in FIGHTS:
-        found = sorted(INPUT.rglob(f"derived/{fid}"))
-        if not found:
-            print(f"{fid}: no staged inputs", flush=True)
-            continue
-        dest = WORK / "derived" / fid
-        for stage in found[0].iterdir():
-            shutil.copytree(stage, dest / stage.name, dirs_exist_ok=True)
+    """Put each fight's ingest and shots files, uploaded flat as
+    {fight_id}__{stage}__{file}, back into derived/{fight_id}/{stage}/."""
+    for f in INPUT.rglob("*__*__*"):
+        fid, stage, name = f.name.split("__", 2)
+        if fid in FIGHTS:
+            dest = WORK / "derived" / fid / stage
+            dest.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, dest / name)
 
 
 def write_config() -> Path:

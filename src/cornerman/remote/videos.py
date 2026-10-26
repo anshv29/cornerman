@@ -60,6 +60,9 @@ def matches_processed(video: Path, info: dict[str, object]) -> str | None:
 
 
 ARENA_SLUG = "cornerman-arena"
+SEP = "__"
+"""Kaggle's CLI skips folders when uploading a dataset, so input files go flat as
+{fight_id}__{stage}__{file} and the job puts them back."""
 ARENA_INPUTS = ("ingest", "shots")
 """Stage folders the arena job needs besides the video; with them in place the runner
 sees those stages as cached and runs only `arena`."""
@@ -69,7 +72,8 @@ def stage_arena(
     batch: pd.DataFrame, derived: Path, user: str, work: Path, max_height: int
 ) -> tuple[str, dict[str, str]]:
     """Download the batch's videos, keep those that match what was processed, upload them
-    with their ingest and shots folders as one private dataset, delete the local copies.
+    with their ingest and shots files (flat, see SEP) as one private dataset, delete the
+    local copies.
 
     Returns the dataset ref and a status per fight ("same file", "same frames",
     "different video" or an error); only the first two are uploaded.
@@ -82,7 +86,7 @@ def stage_arena(
     try:
         for fid, url in zip(batch["fight_id"], batch["url"], strict=True):
             fid = str(fid)
-            video = folder / "videos" / f"{fid}.mp4"
+            video = folder / f"{fid}.mp4"
             try:
                 download(str(url), video, max_height)
                 info: dict[str, object] = json.loads(
@@ -99,7 +103,8 @@ def stage_arena(
                 status[fid] = "different video"
             else:
                 for stage in ARENA_INPUTS:
-                    shutil.copytree(derived / fid / stage, folder / "derived" / fid / stage)
+                    for f in (derived / fid / stage).iterdir():
+                        shutil.copy2(f, folder / f"{fid}{SEP}{stage}{SEP}{f.name}")
                 status[fid] = match
             print(fid, status[fid], flush=True)
         if any(v in ("same file", "same frames") for v in status.values()):
