@@ -367,6 +367,22 @@ A smoke test showed YouTube doesn't block downloads from Kaggle, so the job down
 2. *Why a median and not a mean?* One fast moment (a single punch) or one tracking glitch shouldn't flip a whole window. The median needs most of the window to be moving.
 3. *How would you validate it properly?* Against the round clock: once results are scraped (they include the round and time of a finish), and with OCR of the broadcast clock on a sample of fights, compare predicted fighting time with the true round time.
 
+### Version 2: read the clock
+
+**What went wrong with motion.** On more fights, walk-outs and celebrations (fighters bouncing, waving flags) moved fast enough to count, and long grappling stretches where the two fighters merge into one box (the shot isn't "live") were never counted. Motion can't tell "moving because fighting" from "moving because celebrating".
+
+**Why the clock.** The broadcast score bar shows the round clock. A clock counting down about one second per second is the most direct evidence a round is on, whatever the camera shows. So the `arena` stage reads the score bar once a second with OCR, and the `fighting` stage trusts the clock first.
+
+**How it works.** For each pair of readings close in time, the clock is "running" if it went down by about the time that passed (within a tolerance), "stopped" if it didn't move. One trap: between rounds many broadcasts show a rest timer (a one-minute countdown) in the same place, which also counts down. It's spotted by its start, a jump up to 65 s or less, and everything that keeps counting from there is marked stopped. Then: running clock means fighting, even in a shot that isn't live; stopped means not. Before the first running clock and after the last one is walk-out and celebration. Where the clock can't be read, motion decides, plus a crowd check (at most 3 people on the canvas over 5 s: fighters and referee; walk-outs and celebrations bring cornermen and officials).
+
+**How we checked it.** Three ways. (1) Totals: fighting minutes against rounds seen on the clock times 3 minutes, median 1.04 over 19 fights. (2) The fallback, using frames where the clock is known as labels and hiding it: precision 0.98, recall 0.54 on the test half, so without the clock we keep little that's wrong but miss half the fighting. (3) A blind look at 40 thumbnails, 20 v2 keeps and 20 it drops that motion kept: about 9 in 10 right both ways.
+
+**What breaks it.** Fights with a score bar the OCR reads badly (one older style read in 19% of readings). And if the first running clock is read late, the walk-out trim cuts the start of round 1.
+
+**Interview questions.**
+1. *Why trust a broadcast graphic over the video itself?* It's the referee's own timekeeping, already computed. The video only gives proxies (motion, people count) that celebrations and stalls fool. The cost is coverage: where the graphic is missing or unreadable, you need the proxy anyway.
+2. *How do you test a fallback when you don't have labels where it runs?* Make labels where you do have them: on frames where the clock is readable, hide it, run the fallback, and compare. The catch is that those frames might differ from the ones where the clock is unreadable (different broadcasts), so the number is a guide, not a guarantee.
+
 ---
 
 ## 19. Identity experiments: labels from behaviour, and an honest held-out test
