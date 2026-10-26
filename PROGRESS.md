@@ -14,7 +14,7 @@
 
 ## Current spend
 $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs.md`.
-Free Kaggle GPU used so far: about 35.3 hours in total (2026-10-26: about 0.3 h for the tangled-pose test). Kaggle CPU sessions (no GPU quota) run the arena stage. On 2026-10-19 and 10-20: about 3.5 h for the last 24 fights, about 1.7 h of VLM pilots, 0.6 h for a failed full run (out of memory), 3.5 h for the full VLM run. On 2026-10-25: 8.7 h for the 1,000-clip VLM run and 3.4 h for the clinch swap run.
+Free Kaggle GPU used so far: about 35.5 hours in total (2026-10-26: about 0.3 h for the tangled-pose test, 0.2 h for the masks smoke run). Kaggle CPU sessions (no GPU quota) run the arena stage. On 2026-10-19 and 10-20: about 3.5 h for the last 24 fights, about 1.7 h of VLM pilots, 0.6 h for a failed full run (out of memory), 3.5 h for the full VLM run. On 2026-10-25: 8.7 h for the 1,000-clip VLM run and 3.4 h for the clinch swap run.
 
 ## Done
 
