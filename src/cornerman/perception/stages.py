@@ -35,7 +35,7 @@ from cornerman.contracts.perception import (
 )
 from cornerman.perception import crop_features as cf
 from cornerman.perception import models
-from cornerman.perception.activity import fighting_frames
+from cornerman.perception.activity import clock_state, fighting_frames, fighting_v2
 from cornerman.perception.appearance import N_FEATURES, box_features
 from cornerman.perception.arena import mat_colour, mat_hull, on_mat, parse_clock, shot_colour
 from cornerman.perception.decode import (
@@ -425,6 +425,36 @@ def identity(ctx: StageContext) -> None:
     (ctx.out_dir / "quality.json").write_text(json.dumps(quality, indent=2, sort_keys=True))
 
 
+def fighting(ctx: StageContext) -> None:
+    """Fighting time v2: the round clock where it can be read, motion and a crowd check
+    where it can't (activity.fighting_v2). Replaces identity's motion-only table for
+    everything downstream; identity's own confidence flag keeps the motion table it was
+    validated on."""
+    p = ctx.settings.perception
+    tracks = pd.read_parquet(
+        ctx.inputs["tracking"] / "tracks.parquet", columns=["frame", "track_id"]
+    )
+    frames = pd.read_parquet(ctx.inputs["tracking"] / "frames.parquet")
+    live = pd.read_parquet(ctx.inputs["tracking"] / "live.parquet")
+    motion = pd.read_parquet(ctx.inputs["identity"] / "fighting.parquet")
+    clock = pd.read_parquet(ctx.inputs["arena"] / "clock.parquet")
+    state = clock_state(clock, max_dt_s=3 * p.arena_clock_every_s, tol_s=p.fight_clock_tol_s)
+    out = fighting_v2(
+        motion,
+        frames,
+        set(live.loc[live["live"], "shot_id"].tolist()),
+        state,
+        tracks.groupby("frame")["track_id"].nunique(),
+        p.fight_clock_reach_s,
+        p.fight_clock_margin_s,
+        p.fight_max_people,
+        p.fight_crowd_window_s,
+        p.fight_min_gap_s,
+        p.fight_min_run_s,
+    )
+    out.to_parquet(ctx.out_dir / "fighting.parquet", index=False)
+
+
 def identity_segments(ctx: StageContext) -> None:
     """Identity confidence per shot, so the clean shots of a flagged fight can be used."""
     p = ctx.settings.perception
@@ -435,7 +465,7 @@ def identity_segments(ctx: StageContext) -> None:
         ctx.inputs["crop_features"] / "crops.parquet", columns=["frame", "track_id"]
     )
     roles = pd.read_parquet(ctx.inputs["identity"] / "roles.parquet")
-    fighting = pd.read_parquet(ctx.inputs["identity"] / "fighting.parquet")
+    fighting = pd.read_parquet(ctx.inputs["fighting"] / "fighting.parquet")
     quality = json.loads((ctx.inputs["identity"] / "quality.json").read_text())
     in_live = tracks[tracks["shot_id"].isin(live.loc[live["live"], "shot_id"])]
     segments = segment_quality(
@@ -537,9 +567,24 @@ REAL_PIPELINE: list[Stage] = [
         sources=_probe_file,
     ),
     Stage(
+        "fighting",
+        fighting,
+        deps=("tracking", "identity", "arena"),
+        config_keys=(
+            "perception.arena_clock_every_s",
+            "perception.fight_clock_reach_s",
+            "perception.fight_clock_tol_s",
+            "perception.fight_clock_margin_s",
+            "perception.fight_max_people",
+            "perception.fight_crowd_window_s",
+            "perception.fight_min_gap_s",
+            "perception.fight_min_run_s",
+        ),
+    ),
+    Stage(
         "identity_segments",
         identity_segments,
-        deps=("tracking", "crop_features", "identity"),
+        deps=("tracking", "crop_features", "identity", "fighting"),
         config_keys=(
             "perception.identity_segment_min_s",
             "perception.identity_flag_below",

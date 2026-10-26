@@ -78,3 +78,107 @@ def fighting_frames(
     return pd.DataFrame(
         {"frame": f["frame"], "t": f["t"], "speed": smooth.to_numpy(), "fighting": fighting}
     )
+
+
+RUNNING, STOPPED, UNKNOWN = "running", "stopped", "unknown"
+
+
+def clock_state(clock: pd.DataFrame, max_dt_s: float, tol_s: float) -> pd.Series:
+    """running, stopped or unknown for each clock reading (arena stage's clock table).
+
+    A reading is running when a readable neighbour (the one before or after, at
+    most `max_dt_s` away) differs from it by the time between them, give or take
+    `tol_s`, in either direction (bars count down or up). It is stopped when a
+    neighbour at least 1.5 s away shows the same time: between rounds, before the
+    fight and after it the clock is frozen. Otherwise (no readable neighbour, or
+    a change that fits neither, usually an OCR slip) it is unknown.
+    """
+    c = clock.sort_values("t").reset_index(drop=True)
+    known = c[c["clock_s"].notna()]
+    t = known["t"].to_numpy(dtype=float)
+    v = known["clock_s"].to_numpy(dtype=float)
+    state = pd.Series(UNKNOWN, index=c.index, dtype=object)
+    for k, i in enumerate(known.index):
+        votes: set[str] = set()
+        for j in (k - 1, k + 1):
+            if not 0 <= j < len(t):
+                continue
+            dt = abs(t[j] - t[k])
+            if dt > max_dt_s:
+                continue
+            dc = abs(v[j] - v[k])
+            if abs(dc - dt) <= tol_s:
+                votes.add(RUNNING)
+            elif dc == 0 and dt >= 1.5:
+                votes.add(STOPPED)
+        if votes:
+            state[i] = RUNNING if RUNNING in votes else STOPPED
+    return pd.Series(state.to_numpy(), index=c["frame"].to_numpy(), name="clock")
+
+
+def fighting_v2(
+    motion: pd.DataFrame,
+    frames: pd.DataFrame,
+    live_shots: set[int],
+    clock: pd.Series,
+    people: pd.Series,
+    reach_s: float,
+    margin_s: float,
+    max_people: int,
+    crowd_window_s: float,
+    min_gap_s: float,
+    min_run_s: float,
+) -> pd.DataFrame:
+    """Fighting time from the round clock where it can be read, motion and a crowd check
+    where it can't.
+
+    `motion` is the motion-only table (`fighting_frames`), `clock` the state per
+    clock reading (`clock_state`, indexed by frame), `people` the number of
+    people on the canvas per sampled frame. Per frame:
+    1. clock running (nearest reading within `reach_s`): fighting if in a live shot;
+    2. clock stopped: not fighting;
+    3. clock unknown: motion says fighting, at most `max_people` on the canvas
+       (median over `crowd_window_s`; walk-outs and celebrations bring cornermen
+       and officials in), and within `margin_s` of the first and last running
+       reading if the fight has any (walk-out before, celebration after).
+    Then, as for motion, short gaps are filled and short runs dropped.
+    """
+    f = motion.sort_values("frame").reset_index(drop=True)
+    dt = float(np.median(np.diff(f["t"]))) if len(f) > 1 else 0.1
+    readings = pd.DataFrame({"frame": clock.index.to_numpy(dtype=np.int64), "clock": clock.values})
+    readings = readings.sort_values("frame")
+    step = float(np.median(np.diff(f["frame"]))) if len(f) > 1 else 1.0
+    tol = round(reach_s / dt * step)
+    near = pd.merge_asof(f[["frame"]], readings, on="frame", direction="nearest", tolerance=tol)[
+        "clock"
+    ].fillna(UNKNOWN)
+    state = near.to_numpy(dtype=object)
+    shot = f["frame"].map(frames.set_index("frame")["shot_id"]).to_numpy()
+    live = pd.Series(shot).isin(live_shots).to_numpy()
+    window = max(1, round(crowd_window_s / dt))
+    crowd = f["frame"].map(people).fillna(0).rolling(window, center=True, min_periods=1).median()
+    run_t = f["t"].to_numpy()[state == RUNNING]
+    inside = (
+        (f["t"] >= run_t.min() - margin_s) & (f["t"] <= run_t.max() + margin_s)
+        if len(run_t)
+        else pd.Series(True, index=f.index)
+    ).to_numpy()
+    fallback = f["fighting"].to_numpy() & (crowd.to_numpy() <= max_people) & inside
+    fighting = np.where(state == RUNNING, live, np.where(state == STOPPED, False, fallback))
+    fighting = fighting.astype(bool)
+    for target, max_len in ((False, min_gap_s), (True, min_run_s)):
+        runs = _runs(fighting)
+        for i, (s, e, v) in enumerate(runs):
+            inner = 0 < i < len(runs) - 1
+            if v == target and (e - s) * dt < max_len and (target or inner):
+                fighting[s:e] = not target
+    return pd.DataFrame(
+        {
+            "frame": f["frame"],
+            "t": f["t"],
+            "speed": f["speed"],
+            "clock": state.astype(str),
+            "motion": f["fighting"].to_numpy(dtype=bool),
+            "fighting": fighting,
+        }
+    )

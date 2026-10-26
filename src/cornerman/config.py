@@ -88,6 +88,19 @@ class PerceptionConfig(BaseModel):
     pilot, rounds ran at 0.3 to 0.6 and breaks near 0.1; 0.2 gave 9.3 and 9.5 minutes."""
     fight_min_gap_s: float = Field(default=8.0, ge=0)
     fight_min_run_s: float = Field(default=15.0, ge=0)
+    fight_clock_reach_s: float = Field(default=3.0, gt=0)
+    """A sampled frame takes the state (running, stopped) of the nearest clock reading
+    within this many seconds; further away it is unknown (fighting_v2)."""
+    fight_clock_tol_s: float = Field(default=1.5, ge=0)
+    """Two clock readings t seconds apart show a running clock if they differ by t, give
+    or take this (OCR every 2 s, rounding to whole seconds)."""
+    fight_clock_margin_s: float = Field(default=5.0, ge=0)
+    """Where the clock can't be read, no fighting further than this before the first or
+    after the last reading of a running clock (walk-outs and celebrations)."""
+    fight_max_people: int = Field(default=3, ge=2)
+    """Where the clock can't be read: at most this many people on the canvas (two fighters
+    and the referee). Walk-outs and celebrations bring cornermen and officials in."""
+    fight_crowd_window_s: float = Field(default=5.0, gt=0)
     crop_model: str = "facebook/dinov2-small"
     """Appearance features for person crops (Apache 2.0), used by identity."""
     crop_revision: str = "ed25f3a31f01"

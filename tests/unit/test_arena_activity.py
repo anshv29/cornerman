@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("cv2")
 
-from cornerman.perception.activity import fighting_frames
+from cornerman.perception.activity import clock_state, fighting_frames, fighting_v2
 from cornerman.perception.arena import mat_colour, mat_hull, on_mat, parse_clock, shot_colour
 
 H, W = 360, 640
@@ -136,3 +136,47 @@ def test_kit_colour_reads_gloves_shins_and_shorts() -> None:
 )
 def test_parse_clock(texts: list[str], want: tuple[float | None, int | None]) -> None:
     assert parse_clock(texts) == want
+
+
+def _clock(values: list[float | None], every: float = 2.0) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "frame": [int(k * every * 10) for k in range(len(values))],
+            "t": [k * every for k in range(len(values))],
+            "clock_s": values,
+        }
+    )
+
+
+def test_clock_state_running_stopped_unknown() -> None:
+    # Counting down, a frozen stretch (between rounds), an OCR slip, unreadable, counting up.
+    values: list[float | None] = [180, 178, 176, 60, 60, 60, 99, None, None, 10, 12, 14]
+    state = clock_state(_clock(values), max_dt_s=6.0, tol_s=1.5).tolist()
+    assert state[:3] == ["running"] * 3
+    assert state[3:6] == ["stopped"] * 3
+    assert state[6:9] == ["unknown"] * 3
+    assert state[9:] == ["running"] * 3
+
+
+def test_fighting_v2_uses_the_clock_then_motion_and_crowd() -> None:
+    n = 400  # 40 s at 10 fps
+    frames = pd.DataFrame({"frame": range(n), "t": np.arange(n) / 10, "shot_id": 0})
+    motion = frames[["frame", "t"]].assign(speed=0.5, fighting=True)
+    # Clock: unreadable for the first 10 s (walk-out), running 10 to 30 s, frozen after.
+    readings = {f: ("running" if 100 <= f < 300 else "stopped") for f in range(100, n, 20)}
+    clock = pd.Series(readings, name="clock")
+    people = pd.Series(3, index=frames["frame"])
+
+    def run(clock: pd.Series, people: pd.Series) -> pd.Series:
+        out = fighting_v2(motion, frames, {0}, clock, people, 3.0, 2.0, 3, 5.0, 0.0, 0.0)
+        return out.set_index("frame")["fighting"]
+
+    fight = run(clock, people)
+    assert fight[100:289].all()  # clock running (from 290 the nearest reading is the stopped one)
+    assert not fight[320:].any()  # clock stopped: the celebration, though people move
+    assert not fight[:45].any()  # unknown, and well before the first running reading
+    # No clock at all: motion decides, unless the canvas is crowded.
+    none = pd.Series(dtype=object)
+    crowded = people.where(frames["frame"] < 200, 6)
+    fight = run(none, crowded)
+    assert fight[:170].all() and not fight[230:].any()

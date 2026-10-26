@@ -154,9 +154,16 @@ def push_kernel(
     accelerator: str = DEFAULT_ACCELERATOR,
     probe: Prober = anonymous_status,
 ) -> str:
-    """Push a kernel, then confirm on Kaggle that it is private, two ways."""
+    """Push a kernel, then confirm on Kaggle that it is private, two ways.
+
+    The accelerator is asked for only when the kernel enables a GPU; a CPU kernel
+    pushed with one is refused (409).
+    """
     meta = read_kernel_metadata(folder)
-    out = kaggle(["kernels", "push", "-p", str(folder), "--accelerator", accelerator], runner)
+    args = ["kernels", "push", "-p", str(folder)]
+    if meta.get("enable_gpu"):
+        args += ["--accelerator", accelerator]
+    out = kaggle(args, runner)
     verify_kernel_private(str(meta["id"]), runner)
     check_not_public(f"https://www.kaggle.com/code/{meta['id']}", probe)
     return out

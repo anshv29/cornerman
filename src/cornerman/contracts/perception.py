@@ -162,6 +162,13 @@ def usable_fights(derived: Path, hold: Path = HOLD_CSV) -> list[str]:
     return sorted(q.loc[~q["flagged"], "fight_id"].tolist())
 
 
+def fighting_table(fight_dir: Path) -> Path:
+    """The fight's fighting-time table: v2 (clock, crowd) from the fighting stage once it
+    has run, else identity's motion-only one."""
+    v2 = fight_dir / "fighting" / "fighting.parquet"
+    return v2 if v2.exists() else fight_dir / "identity" / "fighting.parquet"
+
+
 def usable_frames(derived: Path, hold: Path = HOLD_CSV) -> dict[str, set[int]]:
     """Fighting frames whose identity can be used for anything per fighter, per fight.
 
@@ -179,7 +186,7 @@ def usable_frames(derived: Path, hold: Path = HOLD_CSV) -> dict[str, set[int]]:
     ):
         if fid in held:
             continue
-        fighting = pd.read_parquet(derived / fid / "identity" / "fighting.parquet")
+        fighting = pd.read_parquet(fighting_table(derived / fid))
         frames = fighting.loc[fighting["fighting"], "frame"]
         if flagged:
             seg_path = derived / fid / "identity_segments" / "segments.parquet"

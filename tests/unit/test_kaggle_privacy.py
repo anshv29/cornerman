@@ -129,6 +129,26 @@ def test_push_fails_if_kernel_is_visible_anonymously(tmp_path: Path) -> None:
     push_kernel(folder, runner, probe=lambda url: 404)
 
 
+def test_accelerator_only_for_gpu_kernels(tmp_path: Path) -> None:
+    pushes: list[list[str]] = []
+
+    def runner(args: Sequence[str]) -> str:
+        if args[:2] == ["kernels", "push"]:
+            pushes.append(list(args))
+        if args[:2] == ["kernels", "pull"]:
+            _kernel(Path(args[args.index("-p") + 1]), is_private=True)
+        return ""
+
+    cpu = _kernel(tmp_path / "cpu", is_private=True)
+    push_kernel(cpu, runner, probe=lambda url: 404)
+    gpu = _kernel(tmp_path / "gpu", is_private=True)
+    meta = json.loads((gpu / "kernel-metadata.json").read_text())
+    (gpu / "kernel-metadata.json").write_text(json.dumps({**meta, "enable_gpu": True}))
+    push_kernel(gpu, runner, probe=lambda url: 404)
+    assert "--accelerator" not in pushes[0]
+    assert "--accelerator" in pushes[1]
+
+
 def test_metadata_override_cannot_make_kernel_public(tmp_path: Path) -> None:
     src = _kernel(tmp_path / "src", is_private=True)
     with pytest.raises(PrivacyError):

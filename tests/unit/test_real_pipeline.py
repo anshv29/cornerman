@@ -6,6 +6,7 @@ colour). The tracker, identity, contracts, caching and overlay run for real.
 """
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -99,8 +100,15 @@ def _fake_embed(
     return out / np.maximum(np.linalg.norm(out, axis=1, keepdims=True), 1e-6)
 
 
-def _fake_bar(img: np.ndarray) -> list[str]:
-    return ["02:43", "ROUND 2"]
+def _fake_bar() -> Callable[[np.ndarray], list[str]]:
+    """A round clock counting down one second per reading (one reading a second)."""
+    seconds = iter(range(163, 0, -1))
+
+    def read(img: np.ndarray) -> list[str]:
+        s = next(seconds)
+        return [f"{s // 60:02d}:{s % 60:02d}", "ROUND 2"]
+
+    return read
 
 
 def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,7 +116,7 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr(models, "detect_people", _fake_detect)
     monkeypatch.setattr(models, "estimate_poses", _fake_pose)
     monkeypatch.setattr(models, "embed_crops", _fake_embed)
-    monkeypatch.setattr(stages, "bar_reader", lambda: _fake_bar)
+    monkeypatch.setattr(stages, "bar_reader", _fake_bar)
     # Fighter score from the green channel: red (255, 0, 0) and blue (0, 0, 255) people
     # have none, the grey referee has some.
     w = np.zeros(384)
@@ -187,7 +195,12 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
     assert ys.min() == pytest.approx(140 / SIZE[1], abs=0.05)  # the canvas starts at y=140
     clock = pd.read_parquet(d / "arena" / "clock.parquet")
     assert len(clock) == N // FPS
-    assert (clock["clock_s"] == 163.0).all() and (clock["round"] == 2).all()
+    assert clock["clock_s"].tolist() == [163.0 - k for k in range(N // FPS)]
+    assert (clock["round"] == 2).all()
+    # The clock runs throughout, so every frame of a live shot is fighting time.
+    v2 = pd.read_parquet(d / "fighting" / "fighting.parquet")
+    assert (v2["clock"] == "running").mean() > 0.9
+    assert v2["fighting"].mean() > 0.8
     assert len(list((tmp_path / "thumbs" / "ft_test").glob("*.jpg"))) == N // (2 * FPS)
 
     # Second run is fully cached.

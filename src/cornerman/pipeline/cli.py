@@ -52,12 +52,12 @@ def pipeline_for(name: str) -> list[Stage]:
 
 def _segment_report(derived: Path, q: pd.DataFrame) -> None:
     """Fighting minutes usable per fighter: whole unflagged fights, clean shots of flagged ones."""
-    from cornerman.contracts.perception import usable_frames
+    from cornerman.contracts.perception import fighting_table, usable_frames
 
     flagged = set(q.loc[q["flagged"], "fight_id"].tolist())
     minutes: dict[str, float] = {}
     for fid, frames in usable_frames(derived).items():
-        t = pd.read_parquet(derived / fid / "identity" / "fighting.parquet", columns=["t"])["t"]
+        t = pd.read_parquet(fighting_table(derived / fid), columns=["t"])["t"]
         dt = float(t.diff().median())  # 0.1 s or 0.08 s, depending on the video
         minutes[fid] = len(frames) * dt / 60
     whole = sum(m for f, m in minutes.items() if f not in flagged)
@@ -121,6 +121,11 @@ def main(argv: list[str] | None = None) -> int:
     p_ab.add_argument("--fights-csv", type=Path, default=Path("data/fights.csv"))
     p_ab.add_argument("--n", type=int, default=0, help="next n fights without arena output")
     p_ab.add_argument("--fight", action="append", default=[], help="these fights")
+    p_ab.add_argument(
+        "--reuse-dataset",
+        action="store_true",
+        help="the arena dataset already on Kaggle holds these fights; don't upload again",
+    )
     kg.add_parser("arena-import", help="pull the arena job's output, delete its dataset")
     p_import = kg.add_parser("import", help="pull the GPU job's output into data/")
     p_import.add_argument("--data", type=Path, default=Path("data"))
@@ -310,11 +315,19 @@ def _arena_batch(args: argparse.Namespace) -> int:
     chosen = fights[fights["fight_id"].isin(ids)]
     settings = load_settings(args.config)
     shutil.rmtree(KAGGLE_BUILD / "arena_output", ignore_errors=True)
-    ref, status = videos.stage_arena(
-        chosen, derived, _kaggle_user(), Path("data/raw/upload"), settings.perception.max_height
-    )
-    ok = [f for f, s in status.items() if s in ("same file", "same frames")]
-    print(f"{len(ok)} of {len(status)} videos match what was processed; uploaded to {ref}")
+    if args.reuse_dataset:
+        ref = f"{_kaggle_user()}/{videos.ARENA_SLUG}"
+        if not kaggle.dataset_exists(ref):
+            print(f"{ref} doesn't exist; run without --reuse-dataset")
+            return 1
+        kaggle.check_not_public(f"https://www.kaggle.com/api/v1/datasets/view/{ref}")
+        ok = [str(f) for f in chosen["fight_id"]]
+    else:
+        ref, status = videos.stage_arena(
+            chosen, derived, _kaggle_user(), Path("data/raw/upload"), settings.perception.max_height
+        )
+        ok = [f for f, s in status.items() if s in ("same file", "same frames")]
+        print(f"{len(ok)} of {len(status)} videos match what was processed; uploaded to {ref}")
     if not ok:
         return 1
     values = batch.build_values(chosen[chosen["fight_id"].isin(ok)], args.config, 0)
