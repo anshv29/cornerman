@@ -2,6 +2,8 @@
 
 ## Needs Ansh
 
+0. **Pose on shots that aren't live: which option (2026-10-26).** Test in DECISIONS.md ("Pose on tangled shots"). Standing clinches: today's method gets two clean skeletons on 65% of frames, ground tangles: no method above 7%. Options: (a) rerun today's method (A) on non-live shots for standing clinches only, about 1 to 2 h free GPU, and leave ground frames without pose; (b) as (a), plus RF-DETR Seg masks on ground frames, so ground states use mask shape and who is on top rather than skeletons; (c) skip the rerun and judge clinch and ground in those shots from boxes, masks and the VLM. Recommended: (b).
+
 1. **A free DVC remote (not blocking).** Ansh said on 2026-10-17 this can wait. Recommended: DagsHub (free, no card). Sign up at https://dagshub.com with GitHub, connect the `anshv29/cornerman` repo, then share the DVC remote URL and an access token with the agent, for example by putting the token in a gitignored `.env` file. Until then the DVC cache lives only on this laptop.
 
 ## Kaggle setup (done 2026-10-17)
@@ -12,7 +14,7 @@
 
 ## Current spend
 $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs.md`.
-Free Kaggle GPU used so far: about 35 hours in total. On 2026-10-19 and 10-20: about 3.5 h for the last 24 fights, about 1.7 h of VLM pilots, 0.6 h for a failed full run (out of memory), 3.5 h for the full VLM run. On 2026-10-25: 8.7 h for the 1,000-clip VLM run and 3.4 h for the clinch swap run.
+Free Kaggle GPU used so far: about 35.3 hours in total (2026-10-26: about 0.3 h for the tangled-pose test). Kaggle CPU sessions (no GPU quota) run the arena stage. On 2026-10-19 and 10-20: about 3.5 h for the last 24 fights, about 1.7 h of VLM pilots, 0.6 h for a failed full run (out of memory), 3.5 h for the full VLM run. On 2026-10-25: 8.7 h for the 1,000-clip VLM run and 3.4 h for the clinch swap run.
 
 ## Done
 
