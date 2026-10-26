@@ -8,7 +8,7 @@ Cornerman turns public amateur MMA footage into a log of (state, action) events 
 
 Tier 0 (foundation) is done. Tier 1 Phase 1 (data and perception skeleton) is mostly done: real perception has run on 2 amateur fights so far.
 
-- **Fight list.** 53 adult amateur fights and 88 fighters from the IMMAF YouTube channel (15 fighters have 2 or more fights). Youth, junior and cadet bouts are skipped (checked in titles, descriptions, tags and the on-screen score bar), along with every bout of any fighter who appears in one. Where the score bar doesn't show the division, the bout is checked against IMMAF's published results and dropped unless it's confirmed adult. Fighters get anonymous IDs (`F0001`); real names stay on the laptop.
+- **Fight list.** 54 adult amateur fights and 90 fighters from the IMMAF YouTube channel (15 fighters have 2 or more fights). Youth, junior and cadet bouts are skipped (checked in titles, descriptions, tags and the on-screen score bar), along with every bout of any fighter who appears in one. Where the score bar doesn't show the division, the bout is checked against IMMAF's published results and dropped unless it's confirmed adult. Fighters get anonymous IDs (`F0001`); real names stay on the laptop.
 - **Perception pipeline.** Shot boundaries (TransNetV2), person detection (RF-DETR Large), tracking per shot (BoT-SORT), fighter A / fighter B / referee by cannot-link clustering on clothing colour, and 2D pose (ViTPose++ Large). Runs as private Kaggle GPU jobs, one fight per GPU.
 - **Pilot, 2 fights.** Label-free health numbers, not accuracy (the gold set for real accuracy comes in Phase 2):
 

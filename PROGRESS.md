@@ -12,7 +12,7 @@
 
 ## Current spend
 $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs.md`.
-Free Kaggle GPU used so far: about 23 hours in total. On 2026-10-19 and 10-20: about 3.5 h for the last 24 fights, about 1.7 h of VLM pilots, 0.6 h for a failed full run (out of memory), 3.5 h for the full VLM run.
+Free Kaggle GPU used so far: about 35 hours in total. On 2026-10-19 and 10-20: about 3.5 h for the last 24 fights, about 1.7 h of VLM pilots, 0.6 h for a failed full run (out of memory), 3.5 h for the full VLM run. On 2026-10-25: 8.7 h for the 1,000-clip VLM run and 3.4 h for the clinch swap run.
 
 ## Done
 
@@ -60,10 +60,18 @@ Free Kaggle GPU used so far: about 23 hours in total. On 2026-10-19 and 10-20: a
 - Docs: LEARNING.md section 20.
 
 ### Adult bouts, second and third passes (2026-10-25)
-- The spot check showed "JUNIORS" on some score bars. The adult filter now also reads tags, playlist names and the on-screen score bar (OCR), and runs a results check for fights whose screen shows no division. 10 junior bouts removed first; then 26 fights went on hold and were checked against IMMAF's results: 18 adult (back), 11 removed (3 junior, 3 more through the fighter rule, 5 unclear). Now **53 fights, 88 fighters, 15 with 2+ fights**. Details: DECISIONS.md, parts 2 and 3.
-- One part-2 removal (ft_2b1a88cfe9) was triggered by the event banner, and the results show it as an adult bout. Restorable with a new download and GPU run.
+- The spot check showed "JUNIORS" on some score bars. The adult filter now also reads tags, playlist names and the on-screen score bar (OCR), and runs a results check for fights whose screen shows no division. 10 junior bouts removed first; then 26 fights went on hold and were checked against IMMAF's results: 18 adult (back), 11 removed (3 junior, 3 more through the fighter rule, 5 unclear). Now **54 fights, 90 fighters, 15 with 2+ fights** (after restoring ft_2b1a88cfe9). Details: DECISIONS.md, parts 2 and 3.
+- One part-2 removal (ft_2b1a88cfe9) was triggered by the event banner, and the results show it as an adult bout. Restored to the fight list; processed with the next GPU batch.
 - Identity held-out test on what's left: 9 of 14 (64%), AUC 0.80 (was 18 of 24 with the junior bouts).
 - Kaggle: perception kernel deleted with all versions.
+
+### Phase 2, silver set second build (2026-10-25)
+- Clinch control by the swap test: the questions prompt rerun with blue named first on the 698 close and merged clips; a clinch label is kept only if it names the same controller both ways. The direct prompt's clinch-control answers are not used (it said red in all 114 clinches).
+- **Silver: 137 of 780 clips, from 30 fights.** Neutral 97, clinch 26, ground 13, cage pressure 1. Per stratum: apart 65%, close 14%, ground 19%, merged 9%.
+- **Lower tier (both prompts agree, rules abstain; not silver): 152 clips.** Neutral 66, clinch 38, ground 47, cage 1. Kept separate.
+- **Spot check, agent-judged and not blind, 32 clips** (`experiments/silver_spot_verdicts.csv`). Silver: state family 16 of 16; ground and cage direction 6 of 6; clinch controller 1 right, 1 plausible, 3 can't be told. Lower tier: family 16 of 16; direction 2 of 6 checkable wrong.
+- Kaggle cleanup: `cornerman-vlm` kernel and `cornerman-clips` dataset deleted with all versions. Left on Kaggle: `cornerman-smoke` (only a result.json). No datasets.
+- Details: DECISIONS.md "Silver set, second build", LEARNING.md section 21.
 
 ### Phase 2, silver set first build (2026-10-19 to 10-20)
 - Clips (`gold-clips`, `gold-cut`): 400 clips of 3 s from the 39 usable fights, 100 per stratum (apart, close, ground, merged), clips with both fighters boxed first. Cut on the laptop from a re-download checked against the processed video, red corner in a red box and blue in a blue box, 10 fps, 480 px. Local only; on Kaggle only as a private dataset deleted after each job.
@@ -79,7 +87,8 @@ Free Kaggle GPU used so far: about 23 hours in total. On 2026-10-19 and 10-20: a
 - **Identity is good enough to start, not solved.** 75% of held-out fights right; the failures are ground mixing and the other fighter leaking into a corner through clinches. The confidence score ranks fights well but its threshold is soft (Needs Ansh, item 1). Clinch box-merging (above) is the shared root cause.
 - **Clip strata are a rough proxy.** "ground" leans on torso angle and wide boxes and "merged" also catches close-ups of one fighter. They only spread the sample.
 - **The silver set leans easy.** The rules need both fighters boxed separately, so tangled clinches and pins rarely become silver. Numbers measured on it must say "silver" and be split by stratum.
-- **The VLM's clinch-control answers are unreliable.** In the pilot the two prompts often named opposite fighters as controlling. Silver drops those clips, so clinch-controlling/controlled may stay thin.
+- **Clinch direction in silver is not confirmed by eye.** The swap test removes position bias, but in the spot check only 2 of 5 silver clinch controllers could be confirmed from the frames. Report clinch numbers with controlling and controlled merged as well as split. Cage pressure has 1 silver clip; the VLM's cage answers flip with the wording 46% of the time.
+- **The lower tier's directions are unreliable** (2 of 6 wrong in the spot check). Use only its state family, and only as a rough check on the hard strata.
 - **Kaggle CLI quirks:** `kaggle datasets create` and `datasets version` sometimes upload everything and then fail to parse the reply ("Expecting value"). Since 2026-10-24 `upload_dataset` carries on after that one error and still runs the ready and privacy checks. Once, a kernel push reported success but Kaggle kept the old version, so the "complete" status belonged to the previous run. After a push, check that the status is QUEUED or RUNNING.
 - **Cage mask misses**: a person outside the cage but close to the camera (a cornerman in a cageside shot) overlaps the canvas in the image and is kept; in one fight, cageside cameras shooting through the fence let several officials through. A white or grey canvas (other promotions) falls back to plain colour distance, untested.
 - **Fighting filter** is tuned on 2 fights (threshold 0.2 box heights per second gives 9.3 and 9.5 minutes). It should be checked on the 50 against each fight's round count, once results are scraped.
@@ -90,13 +99,9 @@ Free Kaggle GPU used so far: about 23 hours in total. On 2026-10-19 and 10-20: a
 - The first `pre-commit` run on a new machine downloads Go to build gitleaks, which takes a minute or two.
 
 ## Next
-1. **In progress (2026-10-25): clinch control swap test.** The direct prompt called red the controller in all 114 clinches (position bias), so its clinch-control labels are not used. The questions prompt with blue named first (`questions_swapped`) is running on the 698 close and merged clips: kernel version 8, pushed 19:23 UTC, free quota, about 3 h. When it finishes: `cornerman gold-vlm import` (saves `labels_006.jsonl`, deletes the clips dataset), then `cornerman gold-silver --labels data/gold/vlm/labels_005.jsonl data/gold/vlm/labels_006.jsonl`. Clinch control is kept only where questions and questions_swapped name the same controller.
-   After the import: delete the `cornerman-vlm` kernel (all versions) and the `cornerman-clips` dataset (all versions), as Ansh asked on 2026-10-25, then strip any labels of removed fights (`cornerman purge-fights` lists in `data/meta/removed_*.txt`).
-   Then the agent-judged spot check (`gold/spot.py`, up to 5 clips per state pair and tier), reported as agent-judged and not blind, with the lower tier (prompts agree, rules abstain) kept apart from silver.
-2. Report silver coverage and spot-check precision per state, not only overall (clinch and ground are the thin ones).
-3. **Identity confidence per segment, not per fight** (Ansh, 2026-10-25: next priority after the silver report). Laptop only, no GPU: the four label-free checks per shot or per stretch of fighting time, so the clean parts of flagged fights become usable. The threshold needs its own check.
-4. Phase 3: per-state accuracy of the rules labeller against silver, and Dawid-Skene over labellers A and B.
-5. MLflow comes later, before the first real model fit (Phase 4).
+1. **Identity confidence per segment, not per fight** (Ansh, 2026-10-25: next priority after the silver report). Laptop only, no GPU: the four label-free checks per shot or per stretch of fighting time, so the clean parts of flagged fights become usable. The threshold needs its own check.
+2. Phase 3: per-state accuracy of the rules labeller against silver, and Dawid-Skene over labellers A and B.
+3. MLflow comes later, before the first real model fit (Phase 4).
 
 **For the next GPU batch:** ft_2b1a88cfe9 is back in `fights.csv` (IMMAF's results put it in the adult 2019 European Middleweight bracket; its "junior" hit was the event banner). Not processed yet. Ansh: process it with the next batch, not on its own. `select_fights` picks it up automatically.
 

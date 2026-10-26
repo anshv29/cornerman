@@ -1,0 +1,33 @@
+tier,group,clip_id,family_ok,direction,note
+silver,clinch,ft_19d9246f57_002999,yes,unclear,body lock and lift; red may be the one controlling
+silver,clinch,ft_c7b0c2deae_001149,yes,unclear,against the fence; both kits dark so sides can't be told apart
+silver,clinch,ft_49a430a348_004535,yes,right,blue pins red on the fence
+silver,clinch,ft_6ec7337471_009841,yes,plausible,open clinch; red has the lock in two frames
+silver,clinch,ft_29e7448153_006445,yes,unclear,collar-tie exchange; red holds the head in one frame
+silver,ground,ft_74c609942e_001824,yes,right,blue on top
+silver,ground,ft_ed5f1430d1_002378,yes,right,first frame is the takedown; then blue on top
+silver,ground,ft_4007d22ae4_003123,yes,right,red on top
+silver,ground,ft_ada989c610_002242,yes,right,blue over a turtled red
+silver,ground,ft_3ea41f896b_005735,yes,right,red on top; both stand up in the last frame
+silver,cage,ft_04297056b1_001416,yes,right,blue walks red back to the fence
+silver,neutral,ft_34d376a152_004038,yes,n/a,
+silver,neutral,ft_c220061bc5_004470,yes,n/a,
+silver,neutral,ft_04297056b1_001165,yes,n/a,
+silver,neutral,ft_8259912445_008233,yes,n/a,
+silver,neutral,ft_ac7ca80fd5_002202,yes,n/a,camera cuts; standing throughout
+prompts_only,clinch,ft_6ec7337471_001403,yes,unclear,one box around both; dark kits
+prompts_only,clinch,ft_8259912445_006449,yes,plausible,half the clip is the referee's break
+prompts_only,clinch,ft_49a430a348_003842,yes,unclear,red drives blue to the fence but blue has the overhook; leans wrong
+prompts_only,clinch,ft_41c3b09195_001530,yes,unclear,against the fence; dark kits
+prompts_only,clinch,ft_4007d22ae4_000218,yes,plausible,blue holds red's head down in three frames
+prompts_only,ground,ft_945db27a17_008298,yes,wrong,red is on their back; labelled top
+prompts_only,ground,ft_c21ad7a162_006099,yes,right,blue on top against the fence
+prompts_only,ground,ft_ac7ca80fd5_003896,yes,unclear,dark kits; red box is on a cameraman
+prompts_only,ground,ft_29e7448153_005806,yes,right,takedown then blue on top
+prompts_only,ground,ft_53958165cc_005034,yes,right,red on top
+prompts_only,cage,ft_c220061bc5_001010,yes,wrong,shot through the fence: red has their back to it; labelled pressuring
+prompts_only,neutral,ft_945db27a17_003447,yes,n/a,
+prompts_only,neutral,ft_74c609942e_002603,yes,n/a,
+prompts_only,neutral,ft_74c609942e_002634,yes,n/a,
+prompts_only,neutral,ft_e85f7d289d_003775,yes,n/a,
+prompts_only,neutral,ft_f9af4c8207_003504,yes,n/a,
