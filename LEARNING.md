@@ -443,3 +443,33 @@ A smoke test showed YouTube doesn't block downloads from Kaggle, so the job down
 1. *Why ask the same model two different prompts instead of one prompt twice?* Asking twice with greedy decoding gives the same answer, so agreement says nothing. Two prompts that reason differently (pick a label versus answer facts) fail differently; when they agree, the label is more likely right. The pilot showed it: with the 2B model, the direct prompt put the wrong fighter on top on clips where the questions prompt was right.
 2. *What bias does a consensus set have?* It keeps the cases the labellers find easy. Here that means fighters boxed separately (the rules need that), clear positions, and few transitions. Accuracy measured on silver clips overstates accuracy on tangled clinches and scrambles, so every number on it says "silver" and the hard strata are reported separately.
 3. *Why pick the smaller model?* On the clips both models answered, the 4B's prompts agreed with each other more often than the 8B's, the two models gave identical labels wherever both were self-consistent, and the 4B was 2.4 times faster and fit the hardware. A bigger model is a hypothesis, not a default; the pilot didn't support it.
+
+---
+
+## 22. Pose in tangles: a negative result, and what to use instead
+
+**Problem.** Tracking calls a shot live only when most of its frames show two people. In a long clinch or a ground exchange the detector draws one box around both fighters, so those shots fail the test and never got pose: about 197 of 626 video minutes. Rerunning the same pose model there would give one skeleton for two bodies, so the question was whether any off-the-shelf method separates tangled bodies.
+
+**What was tried.** Three methods with permissive licences, on the same 96 frames (16 shots, one per fight, 6 frames each, seed 0):
+- A, top-down (today): RF-DETR finds person boxes, ViTPose++ finds 17 keypoints inside each box.
+- B, masks then top-down: RF-DETR Seg gives each person a pixel mask; ViTPose++ runs on each person's box with every other person's pixels greyed out, so it can't take the other fighter's limbs.
+- C, bottom-up: RTMO finds all keypoints in the image and groups them into people in one pass, with no boxes first. Bottom-up models are built for crowds where people overlap, so this was the best bet on paper.
+
+**How it was judged.** The three drawings of each frame side by side, in a random order per row, labelled X, Y, Z; each scored 2, 1 or 0 fighters with a clean skeleton (limbs on the right body, nothing joined across the two), or "na" if the frame wasn't fighting. The verdicts were committed before the key (which letter is which method) was opened. One agent judged everything: blind to the method, not to the footage.
+
+**Result.** 68 frames could be judged (4 shots were breaks, ceremonies or close-ups).
+
+| | A | B | C |
+|---|---|---|---|
+| standing clinch (23 frames), two clean | 65% | 65% | 39% |
+| ground (45 frames), two clean | 2% | 7% | 4% |
+| ground, at least one clean | 36% | 36% | 27% |
+
+No off-the-shelf method separates ground tangles at broadcast resolution: all three draw one skeleton across both bodies, or the top fighter only. The bottom-up model, the one designed for overlap, did worst everywhere. Its grouping step needs to see enough of each body to tell them apart, and in a guard or a scramble most of the bottom fighter is hidden under the top one. On standing clinches top-down works most of the time, and masks don't beat plain boxes.
+
+**What we do instead (Ansh, 2026-10-26).** Keep B (it ties A where pose works and gives masks for free) on all fighting frames at 2 fps. Keep a skeleton wherever it is clean, even if the other fighter's isn't. On the ground, decide who is on top from the masks (whose silhouette sits higher) rather than from keypoints, and check that rule against the ViCoS hand labels and the silver ground clips.
+
+**Interview questions.**
+1. *Why report a method that failed?* It saves the next person the experiment, and it explains a gap in the data: per-fighter numbers from ground frames come from coarser features, so they are less detailed than standing ones. A write-up that hides that overstates what the system knows.
+2. *Why would bottom-up do worse in tangles, when it's meant for crowds?* Crowded scenes in its training data are mostly people standing next to or in front of each other, with most of each body visible. In a guard one body is mostly under the other. The keypoints it can't see it can't group, and the ones it sees get attached to the wrong person.
+3. *How do you judge three methods fairly by eye?* Same frames, same colours and keypoint threshold, no boxes drawn, a random order per frame, verdicts written down and committed before opening the key. It's still one judge, so the numbers have wide error bars (45 ground frames).
