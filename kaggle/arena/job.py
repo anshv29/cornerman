@@ -27,8 +27,12 @@ CONFIG: dict[str, object] = {}  # BUILD:CONFIG
 REPO = ""  # BUILD:REPO
 COMMIT = ""  # BUILD:COMMIT
 
-TIME_BUDGET_S = 10 * 3600
-"""Stop starting new fights after this, well inside Kaggle's 12 hour limit."""
+TIME_BUDGET_S = 11 * 3600
+"""A worker starts a fight only if its slowest fight so far (at least FIRST_GUESS_S)
+would still end by then, inside Kaggle's 12 hour limit. Fights not started are logged
+and go in the next batch."""
+FIRST_GUESS_S = 1.5 * 3600
+"""About 50 min per fight on the 2-fight smoke run; 4 workers may slow each other."""
 WORK = Path("/kaggle/working")
 TMP = Path("/kaggle/tmp")
 INPUT = Path("/kaggle/input")
@@ -80,9 +84,10 @@ def worker(n: int, fight_ids: list[str], cfg: str, start: float) -> None:
 
     settings = load_settings(Path(cfg))
     log: list[dict[str, object]] = []
+    slowest = FIRST_GUESS_S
     for fid in fight_ids:
         entry: dict[str, object] = {"fight_id": fid, "worker": n}
-        if time.time() - start > TIME_BUDGET_S:
+        if time.time() - start + slowest > TIME_BUDGET_S:
             entry["status"] = "not started (time budget)"
             log.append(entry)
             continue
@@ -99,6 +104,7 @@ def worker(n: int, fight_ids: list[str], cfg: str, start: float) -> None:
                 shutil.make_archive(str(thumbs), "zip", thumbs)
                 shutil.rmtree(thumbs, ignore_errors=True)
         entry["wall_seconds"] = round(time.time() - t0, 1)
+        slowest = max(slowest, time.time() - t0)
         log.append(entry)
         (WORK / f"job_log_w{n}.json").write_text(json.dumps(log, indent=2))
         print(json.dumps(entry)[:600], flush=True)
@@ -125,7 +131,12 @@ def main() -> None:
         path = WORK / f"job_log_w{i}.json"
         if path.exists():
             merged += json.loads(path.read_text())
-    summary = {"workers": n, "total_wall_seconds": round(time.time() - start, 1), "fights": merged}
+    summary = {
+        "workers": n,
+        "cpu_count": os.cpu_count(),
+        "total_wall_seconds": round(time.time() - start, 1),
+        "fights": merged,
+    }
     (WORK / "job_log.json").write_text(json.dumps(summary, indent=2))
     shutil.rmtree(TMP / "raw", ignore_errors=True)
 
