@@ -119,3 +119,9 @@ def test_usable_frames_keep_clean_shots_of_flagged_fights(tmp_path: Path) -> Non
     hold = tmp_path / "hold.csv"
     hold.write_text("fight_id,reason\nft_bad,division not shown\n")
     assert sorted(usable_frames(tmp_path, hold)) == ["ft_good"]
+    # Fighting v2 counts round time in shots that aren't live; those frames have no
+    # pose or roles, so they never come out.
+    v2 = tmp_path / "ft_good" / "fighting"
+    v2.mkdir()
+    fighting.assign(live=lambda d: d["frame"] >= 20).to_parquet(v2 / "fighting.parquet")
+    assert usable_frames(tmp_path, hold)["ft_good"] == set(range(20, 90, 5))

@@ -172,7 +172,7 @@ def fighting_table(fight_dir: Path) -> Path:
 def usable_frames(derived: Path, hold: Path = HOLD_CSV) -> dict[str, set[int]]:
     """Fighting frames whose identity can be used for anything per fighter, per fight.
 
-    An unflagged fight gives all its fighting frames; a flagged fight gives only the
+    An unflagged fight gives all its fighting frames in live shots; a flagged fight gives only the
     frames of its usable segments (identity_segments), so its clean shots aren't lost.
     Fights on hold give nothing.
     """
@@ -187,7 +187,10 @@ def usable_frames(derived: Path, hold: Path = HOLD_CSV) -> dict[str, set[int]]:
         if fid in held:
             continue
         fighting = pd.read_parquet(fighting_table(derived / fid))
-        frames = fighting.loc[fighting["fighting"], "frame"]
+        keep = fighting["fighting"]
+        if "live" in fighting:  # v2 counts round time in shots without pose; never per fighter
+            keep = keep & fighting["live"]
+        frames = fighting.loc[keep, "frame"]
         if flagged:
             seg_path = derived / fid / "identity_segments" / "segments.parquet"
             if not seg_path.exists():

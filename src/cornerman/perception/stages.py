@@ -438,7 +438,12 @@ def fighting(ctx: StageContext) -> None:
     live = pd.read_parquet(ctx.inputs["tracking"] / "live.parquet")
     motion = pd.read_parquet(ctx.inputs["identity"] / "fighting.parquet")
     clock = pd.read_parquet(ctx.inputs["arena"] / "clock.parquet")
-    state = clock_state(clock, max_dt_s=3 * p.arena_clock_every_s, tol_s=p.fight_clock_tol_s)
+    state = clock_state(
+        clock,
+        max_dt_s=3 * p.arena_clock_every_s,
+        tol_s=p.fight_clock_tol_s,
+        break_max_s=p.fight_break_max_s,
+    )
     out = fighting_v2(
         motion,
         frames,
@@ -574,12 +579,14 @@ REAL_PIPELINE: list[Stage] = [
             "perception.arena_clock_every_s",
             "perception.fight_clock_reach_s",
             "perception.fight_clock_tol_s",
+            "perception.fight_break_max_s",
             "perception.fight_clock_margin_s",
             "perception.fight_max_people",
             "perception.fight_crowd_window_s",
             "perception.fight_min_gap_s",
             "perception.fight_min_run_s",
         ),
+        version="2",  # a running clock counts in shots that aren't live; live column
     ),
     Stage(
         "identity_segments",

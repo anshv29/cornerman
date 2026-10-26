@@ -83,7 +83,9 @@ def fighting_frames(
 RUNNING, STOPPED, UNKNOWN = "running", "stopped", "unknown"
 
 
-def clock_state(clock: pd.DataFrame, max_dt_s: float, tol_s: float) -> pd.Series:
+def clock_state(
+    clock: pd.DataFrame, max_dt_s: float, tol_s: float, break_max_s: float
+) -> pd.Series:
     """running, stopped or unknown for each clock reading (arena stage's clock table).
 
     A reading is running when a readable neighbour (the one before or after, at
@@ -92,6 +94,12 @@ def clock_state(clock: pd.DataFrame, max_dt_s: float, tol_s: float) -> pd.Series
     neighbour at least 1.5 s away shows the same time: between rounds, before the
     fight and after it the clock is frozen. Otherwise (no readable neighbour, or
     a change that fits neither, usually an OCR slip) it is unknown.
+
+    Some bars count the rest between rounds down in the same place: the clock
+    jumps up from the end of a round to about 1:00 and runs down again. So a
+    reading that jumps up to at most `break_max_s`, and the readings after it that
+    keep following that countdown, are stopped. A single misread can only mark
+    itself, since the next true reading won't follow its countdown.
     """
     c = clock.sort_values("t").reset_index(drop=True)
     known = c[c["clock_s"].notna()]
@@ -113,6 +121,15 @@ def clock_state(clock: pd.DataFrame, max_dt_s: float, tol_s: float) -> pd.Series
                 votes.add(STOPPED)
         if votes:
             state[i] = RUNNING if RUNNING in votes else STOPPED
+    k = 1
+    while k < len(t):
+        if v[k] <= break_max_s and v[k] - v[k - 1] > t[k] - t[k - 1] + tol_s:
+            k0 = k
+            while k < len(t) and abs(v[k] - (v[k0] - (t[k] - t[k0]))) <= tol_s:
+                state[known.index[k]] = STOPPED
+                k += 1
+        else:
+            k += 1
     return pd.Series(state.to_numpy(), index=c["frame"].to_numpy(), name="clock")
 
 
@@ -135,13 +152,17 @@ def fighting_v2(
     `motion` is the motion-only table (`fighting_frames`), `clock` the state per
     clock reading (`clock_state`, indexed by frame), `people` the number of
     people on the canvas per sampled frame. Per frame:
-    1. clock running (nearest reading within `reach_s`): fighting if in a live shot;
+    1. clock running (nearest reading within `reach_s`): fighting, live shot or not
+       (a long clinch or ground exchange merges the two fighters into one box, so its
+       shot fails the two-people live test; the round is still on);
     2. clock stopped: not fighting;
     3. clock unknown: motion says fighting, at most `max_people` on the canvas
        (median over `crowd_window_s`; walk-outs and celebrations bring cornermen
        and officials in), and within `margin_s` of the first and last running
        reading if the fight has any (walk-out before, celebration after).
-    Then, as for motion, short gaps are filled and short runs dropped.
+    Then, as for motion, short gaps are filled and short runs dropped. `live` says
+    whether the frame's shot is live: only live shots have pose and roles, so anything
+    per fighter needs `fighting & live`.
     """
     f = motion.sort_values("frame").reset_index(drop=True)
     dt = float(np.median(np.diff(f["t"]))) if len(f) > 1 else 0.1
@@ -164,7 +185,7 @@ def fighting_v2(
         else pd.Series(True, index=f.index)
     ).to_numpy()
     fallback = f["fighting"].to_numpy() & (crowd.to_numpy() <= max_people) & inside
-    fighting = np.where(state == RUNNING, live, np.where(state == STOPPED, False, fallback))
+    fighting = np.where(state == RUNNING, True, np.where(state == STOPPED, False, fallback))
     fighting = fighting.astype(bool)
     for target, max_len in ((False, min_gap_s), (True, min_run_s)):
         runs = _runs(fighting)
@@ -180,5 +201,6 @@ def fighting_v2(
             "clock": state.astype(str),
             "motion": f["fighting"].to_numpy(dtype=bool),
             "fighting": fighting,
+            "live": live,
         }
     )

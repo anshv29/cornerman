@@ -94,6 +94,9 @@ class PerceptionConfig(BaseModel):
     fight_clock_tol_s: float = Field(default=1.5, ge=0)
     """Two clock readings t seconds apart show a running clock if they differ by t, give
     or take this (OCR every 2 s, rounding to whole seconds)."""
+    fight_break_max_s: float = Field(default=65.0, gt=0)
+    """A clock that jumps up to at most this and counts down is the rest between rounds
+    (IMMAF: 1 minute), not a round (clock_state)."""
     fight_clock_margin_s: float = Field(default=5.0, ge=0)
     """Where the clock can't be read, no fighting further than this before the first or
     after the last reading of a running clock (walk-outs and celebrations)."""

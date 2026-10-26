@@ -151,11 +151,23 @@ def _clock(values: list[float | None], every: float = 2.0) -> pd.DataFrame:
 def test_clock_state_running_stopped_unknown() -> None:
     # Counting down, a frozen stretch (between rounds), an OCR slip, unreadable, counting up.
     values: list[float | None] = [180, 178, 176, 60, 60, 60, 99, None, None, 10, 12, 14]
-    state = clock_state(_clock(values), max_dt_s=6.0, tol_s=1.5).tolist()
+    state = clock_state(_clock(values), max_dt_s=6.0, tol_s=1.5, break_max_s=65).tolist()
     assert state[:3] == ["running"] * 3
     assert state[3:6] == ["stopped"] * 3
     assert state[6:9] == ["unknown"] * 3
     assert state[9:] == ["running"] * 3
+
+
+def test_clock_state_rest_between_rounds_is_stopped() -> None:
+    # Round ends at 0:02, the bar counts the minute's rest from 1:00, then round 2 starts
+    # at 3:00.
+    values: list[float | None] = [6, 4, 2, 60, 58, 56, 54, 180, 178, 176]
+    state = clock_state(_clock(values), max_dt_s=6.0, tol_s=1.5, break_max_s=65).tolist()
+    assert state == ["running"] * 3 + ["stopped"] * 4 + ["running"] * 3
+    # A single upward misread mid-round (0:59 between 0:38 and 0:34) marks only itself.
+    values = [40, 38, 59, 34, 32]
+    state = clock_state(_clock(values), max_dt_s=6.0, tol_s=1.5, break_max_s=65).tolist()
+    assert state == ["running", "running", "stopped", "running", "running"]
 
 
 def test_fighting_v2_uses_the_clock_then_motion_and_crowd() -> None:
@@ -180,3 +192,8 @@ def test_fighting_v2_uses_the_clock_then_motion_and_crowd() -> None:
     crowded = people.where(frames["frame"] < 200, 6)
     fight = run(none, crowded)
     assert fight[:170].all() and not fight[230:].any()
+    # A running clock counts even in a shot that isn't live (fighters merged on the
+    # ground); the live column says so.
+    out = fighting_v2(motion, frames, set(), clock, people, 3.0, 2.0, 3, 5.0, 0.0, 0.0)
+    out = out.set_index("frame")
+    assert out["fighting"][100:289].all() and not out["live"].any()
