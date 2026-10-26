@@ -59,27 +59,29 @@ def matches_processed(video: Path, info: dict[str, object]) -> str | None:
     return "same frames" if same and abs(p.fps - float(str(info["fps"]))) < 1e-3 else None
 
 
-ARENA_SLUG = "cornerman-arena"
 SEP = "__"
 """Kaggle's CLI skips folders when uploading a dataset, so input files go flat as
 {fight_id}__{stage}__{file} and the job puts them back."""
-ARENA_INPUTS = ("ingest", "shots")
-"""Stage folders the arena job needs besides the video; with them in place the runner
-sees those stages as cached and runs only `arena`."""
 
 
-def stage_arena(
-    batch: pd.DataFrame, derived: Path, user: str, work: Path, max_height: int
+def stage_inputs(
+    batch: pd.DataFrame,
+    derived: Path,
+    user: str,
+    work: Path,
+    max_height: int,
+    slug: str,
+    inputs: tuple[str, ...],
 ) -> tuple[str, dict[str, str]]:
     """Download the batch's videos, keep those that match what was processed, upload them
-    with their ingest and shots files (flat, see SEP) as one private dataset, delete the
-    local copies.
+    with their `inputs` stage files (flat, see SEP) as one private dataset `slug`, delete
+    the local copies.
 
     Returns the dataset ref and a status per fight ("same file", "same frames",
     "different video" or an error); only the first two are uploaded.
     """
-    ref = f"{user}/{ARENA_SLUG}"
-    folder = work / ARENA_SLUG
+    ref = f"{user}/{slug}"
+    folder = work / slug
     shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True)
     status: dict[str, str] = {}
@@ -102,13 +104,13 @@ def stage_arena(
                 video.unlink(missing_ok=True)
                 status[fid] = "different video"
             else:
-                for stage in ARENA_INPUTS:
+                for stage in inputs:
                     for f in (derived / fid / stage).iterdir():
                         shutil.copy2(f, folder / f"{fid}{SEP}{stage}{SEP}{f.name}")
                 status[fid] = match
             print(fid, status[fid], flush=True)
         if any(v in ("same file", "same frames") for v in status.values()):
-            meta = {"title": ARENA_SLUG, "id": ref, "licenses": [{"name": "unknown"}]}
+            meta = {"title": slug, "id": ref, "licenses": [{"name": "unknown"}]}
             (folder / kaggle.DATASET_METADATA).write_text(json.dumps(meta, indent=2))
             kaggle.upload_dataset(folder, ref)
     finally:

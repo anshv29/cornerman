@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from cornerman.remote.batch import arena_todo, done_fights, import_outputs, select_fights
+from cornerman.remote.batch import (
+    STAGE_JOBS,
+    done_fights,
+    import_outputs,
+    select_fights,
+    stage_todo,
+)
 
 
 def _finish(derived: Path, fight: str) -> None:
@@ -53,7 +59,7 @@ def test_import_copies_only_finished_fights(tmp_path: Path) -> None:
     assert (data / "crops" / "ft_done" / "000001_0000010.jpg").exists()
 
 
-def test_arena_todo_and_import(tmp_path: Path) -> None:
+def test_stage_todo_and_import(tmp_path: Path) -> None:
     derived = tmp_path / "derived"
     for fid in ("ft_a", "ft_b", "ft_c"):
         (derived / fid / "identity").mkdir(parents=True)
@@ -62,7 +68,10 @@ def test_arena_todo_and_import(tmp_path: Path) -> None:
     (derived / "ft_a" / "arena" / "manifest.json").write_text("{}")
     hold = tmp_path / "hold.csv"
     hold.write_text("fight_id,reason\nft_c,division not shown\n")
-    assert arena_todo(derived, 0, hold) == ["ft_b"]  # a has arena, c is on hold
+    assert stage_todo(derived, STAGE_JOBS["arena"], 0, hold) == ["ft_b"]  # a has arena, c held
+    assert stage_todo(derived, STAGE_JOBS["masks"], 0, hold) == ["ft_a"]  # masks need arena
+    for job in STAGE_JOBS.values():
+        assert job.dataset_slug != job.kernel_id.split("/")[1]
 
     src = tmp_path / "out"
     (src / "derived" / "ft_b" / "arena").mkdir(parents=True)

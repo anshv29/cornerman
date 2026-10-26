@@ -7,6 +7,7 @@ job that died halfway is resumed by simply building the next batch.
 import json
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -65,13 +66,46 @@ def build_values(batch: pd.DataFrame, config: Path, overlays: int) -> dict[str, 
     }
 
 
-def arena_todo(derived: Path, n: int, hold: Path = HOLD_CSV) -> list[str]:
-    """Processed fights (identity done) with no arena output yet, not on hold; at most n."""
+@dataclass(frozen=True)
+class StageJob:
+    """A stage run on Kaggle by itself (kaggle/stage/job.py), on fights processed earlier."""
+
+    stage: str
+    kernel_id: str
+    """Never the same slug as the dataset: Kaggle refuses a kernel that shares it (409)."""
+    gpu: bool
+    inputs: tuple[str, ...]
+    """Stage folders uploaded with the video; the runner sees them as cached."""
+    needs: tuple[str, ...] = ()
+    """Stages that must be on the laptop before a fight can go in a batch."""
+
+    @property
+    def dataset_slug(self) -> str:
+        return f"cornerman-{self.stage}"
+
+
+STAGE_JOBS = {
+    "arena": StageJob("arena", "anshvaishnav29/cornerman-arena-job", False, ("ingest", "shots")),
+    "masks": StageJob(
+        "masks",
+        "anshvaishnav29/cornerman-masks-job",
+        True,
+        ("ingest", "shots", "tracking", "arena"),
+        ("arena",),
+    ),
+}
+
+
+def stage_todo(derived: Path, job: StageJob, n: int, hold: Path = HOLD_CSV) -> list[str]:
+    """Processed fights (identity done) without `job`'s output, with what it needs, not on
+    hold; at most n."""
     held = held_fights(hold)
     todo = sorted(
         f
         for f in done_fights(derived)
-        if f not in held and not (derived / f / "arena" / "manifest.json").exists()
+        if f not in held
+        and not (derived / f / job.stage / "manifest.json").exists()
+        and all((derived / f / s / "manifest.json").exists() for s in job.needs)
     )
     return todo[:n] if n else todo
 

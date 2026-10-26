@@ -27,7 +27,7 @@ from cornerman.remote import batch, kaggle, videos
 
 KAGGLE_BUILD = Path("kaggle/build")
 PERCEPTION_KERNEL = Path("kaggle/perception")
-ARENA_KERNEL = Path("kaggle/arena")
+STAGE_KERNEL = Path("kaggle/stage")
 VLM_KERNEL = Path("kaggle/vlm")
 VLMS: dict[str, dict[str, object]] = {
     "2b": {"name": "Qwen/Qwen3-VL-2B-Instruct",
@@ -115,18 +115,21 @@ def main(argv: list[str] | None = None) -> int:
         help="attach the videos dataset already on Kaggle instead of uploading again",
     )
     p_ab = kg.add_parser(
-        "arena-batch", help="upload processed fights' videos and run the CPU arena job"
+        "stage-batch",
+        help="upload processed fights' videos and run one stage on Kaggle (arena: CPU, masks: GPU)",
     )
+    p_ab.add_argument("--stage", choices=sorted(batch.STAGE_JOBS), required=True)
     p_ab.add_argument("--config", type=Path, default=Path("configs/kaggle_real.yaml"))
     p_ab.add_argument("--fights-csv", type=Path, default=Path("data/fights.csv"))
-    p_ab.add_argument("--n", type=int, default=0, help="next n fights without arena output")
+    p_ab.add_argument("--n", type=int, default=0, help="next n fights without the stage's output")
     p_ab.add_argument("--fight", action="append", default=[], help="these fights")
     p_ab.add_argument(
         "--reuse-dataset",
         action="store_true",
-        help="the arena dataset already on Kaggle holds these fights; don't upload again",
+        help="the stage's dataset already on Kaggle holds these fights; don't upload again",
     )
-    kg.add_parser("arena-import", help="pull the arena job's output, delete its dataset")
+    p_si = kg.add_parser("stage-import", help="pull a stage job's output, delete its dataset")
+    p_si.add_argument("--stage", choices=sorted(batch.STAGE_JOBS), required=True)
     p_import = kg.add_parser("import", help="pull the GPU job's output into data/")
     p_import.add_argument("--data", type=Path, default=Path("data"))
     p_import.add_argument(
@@ -302,29 +305,35 @@ def _push(
 ) -> None:
     built = kaggle.build_kernel(folder, KAGGLE_BUILD / folder.name, values, metadata)
     print(kaggle.push_kernel(built))
-    print(f"pushed {kaggle.read_kernel_metadata(folder)['id']}, confirmed private on Kaggle")
+    print(f"pushed {kaggle.read_kernel_metadata(built)['id']}, confirmed private on Kaggle")
 
 
-def _arena_batch(args: argparse.Namespace) -> int:
+def _stage_batch(args: argparse.Namespace) -> int:
     derived = Path("data/derived")
-    ids: list[str] = args.fight or batch.arena_todo(derived, args.n)
+    job = batch.STAGE_JOBS[args.stage]
+    ids: list[str] = args.fight or batch.stage_todo(derived, job, args.n)
     if not ids:
         print("no fights to run")
         return 1
     fights = pd.read_csv(args.fights_csv)
     chosen = fights[fights["fight_id"].isin(ids)]
     settings = load_settings(args.config)
-    shutil.rmtree(KAGGLE_BUILD / "arena_output", ignore_errors=True)
     if args.reuse_dataset:
-        ref = f"{_kaggle_user()}/{videos.ARENA_SLUG}"
+        ref = f"{_kaggle_user()}/{job.dataset_slug}"
         if not kaggle.dataset_exists(ref):
             print(f"{ref} doesn't exist; run without --reuse-dataset")
             return 1
         kaggle.check_not_public(f"https://www.kaggle.com/api/v1/datasets/view/{ref}")
         ok = [str(f) for f in chosen["fight_id"]]
     else:
-        ref, status = videos.stage_arena(
-            chosen, derived, _kaggle_user(), Path("data/raw/upload"), settings.perception.max_height
+        ref, status = videos.stage_inputs(
+            chosen,
+            derived,
+            _kaggle_user(),
+            Path("data/raw/upload"),
+            settings.perception.max_height,
+            job.dataset_slug,
+            job.inputs,
         )
         ok = [f for f, s in status.items() if s in ("same file", "same frames")]
         print(f"{len(ok)} of {len(status)} videos match what was processed; uploaded to {ref}")
@@ -332,8 +341,16 @@ def _arena_batch(args: argparse.Namespace) -> int:
         return 1
     values = batch.build_values(chosen[chosen["fight_id"].isin(ok)], args.config, 0)
     values["FIGHTS"] = ok
+    values["TARGET"] = job.stage
     values.pop("OVERLAYS", None)
-    _push(ARENA_KERNEL, values, {"dataset_sources": [ref]})
+    slug = job.kernel_id.split("/")[1]
+    meta: dict[str, object] = {
+        "id": job.kernel_id,
+        "title": slug,
+        "enable_gpu": job.gpu,
+        "dataset_sources": [ref],
+    }
+    _push(STAGE_KERNEL, values, meta)
     return 0
 
 
@@ -366,22 +383,23 @@ def _kaggle(args: argparse.Namespace) -> int:
             metadata["dataset_sources"] = [ref]
         _push(PERCEPTION_KERNEL, values, metadata)
         return 0
-    if args.kaggle_command == "arena-batch":
-        return _arena_batch(args)
-    if args.kaggle_command == "arena-import":
-        src = kaggle.pull_output(
-            str(kaggle.read_kernel_metadata(ARENA_KERNEL)["id"]), KAGGLE_BUILD / "arena_output"
-        )
+    if args.kaggle_command == "stage-batch":
+        return _stage_batch(args)
+    if args.kaggle_command == "stage-import":
+        job = batch.STAGE_JOBS[args.stage]
+        out = KAGGLE_BUILD / f"{job.stage}_output"
+        shutil.rmtree(out, ignore_errors=True)  # else an older batch's fights come along
+        src = kaggle.pull_output(job.kernel_id, out)
         done = batch.import_outputs(
             src,
             Path("data/derived"),
             Path("data/overlays"),
             Path("data/logs"),
-            final_stage="arena",
+            final_stage=job.stage,
             thumbs=Path("data/thumbs"),
         )
-        print(f"imported arena output for {len(done)} fights")
-        ref = f"{_kaggle_user()}/{videos.ARENA_SLUG}"
+        print(f"imported {job.stage} output for {len(done)} fights")
+        ref = f"{_kaggle_user()}/{job.dataset_slug}"
         if kaggle.dataset_exists(ref):
             kaggle.delete_dataset(ref)
             print(f"deleted {ref}, so no raw video stays on Kaggle")
