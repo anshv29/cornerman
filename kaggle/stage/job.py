@@ -77,7 +77,10 @@ def write_config() -> Path:
 
 
 def gpu_count() -> int:
-    """Without importing torch, so the spawned workers can still pick their GPU."""
+    """Without importing torch, so the spawned workers can still pick their GPU. CPU
+    sessions have no nvidia-smi at all."""
+    if shutil.which("nvidia-smi") is None:
+        return 0
     out = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, check=False)
     return out.stdout.count("GPU ") if out.returncode == 0 else 0
 
