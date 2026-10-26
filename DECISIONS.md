@@ -320,3 +320,16 @@ The 24 fights nobody had looked at were processed on Kaggle (free quota, about 3
 **What it gains.** 26.6 minutes of fighting from 19 flagged fights (9 of them a minute or more), on top of 181.7 minutes in the 30 unflagged fights: +15%. Fighters with any usable data go from 54 to 83, and fighters with 2 or more usable fights from 6 to 14 (10 counting only fights with at least a minute). The kept shots lean towards standing exchanges, since tangled shots rarely have both fighters boxed.
 **Minutes were overstated before.** The per-fight `fight_min` check counts frames / 600, assuming 10 fps, but 34 of 53 fights are sampled every 0.08 s, so their fighting time was 25% too high (the usable total is 181.7 minutes, not 209.7). The report now uses each fight's real frame interval; the stored `fight_min` is unchanged and not used.
 **Two side findings.** Some "fighting time" is walk-outs or post-fight celebrations (fighters with flags), a fighting-filter miss, not identity. And a judged-right shot can still be borderline in clinches; per-fighter numbers should keep counting clinch and ground separately.
+
+## 2026-10-26: Pose on tangled shots: tested before rerunning, no method separates ground tangles
+**Why.** Tracking marks a shot live only when most of its frames show two people, so long clinch and ground shots (fighters merged into one box) never got pose: about 197 of 626 video minutes are in shots that aren't live. Ansh approved rerunning pose on them (free Kaggle GPU only) with a method that separates tangled bodies, tested on 10 to 20 shots first.
+**Test.** 16 shots that aren't live (at least 8 s, two people in 5 to 60% of frames), one per fight, 6 frames each, seed 0 (`experiments/pose_tangle_check.py`, `kaggle/pose_test/job.py`). Three methods on the same frames, all Apache 2.0: A today's RF-DETR Large boxes + ViTPose++ Large; B RF-DETR Seg Large masks, ViTPose++ in each instance's box with the other people greyed out; C RTMO-l (rtmlib 0.0.16, bottom-up). Drawings side by side in random order per row, labelled X Y Z; verdicts (2, 1 or 0 clean skeletons on the fighters, or na) committed before the key was opened. Agent-judged, blind to the method but not to the footage.
+**Result.** 4 of 16 shots were not fighting (between-round stools, medal ceremonies, close-ups); 68 judgeable frames from 12 shots.
+
+| frames | A two clean | B | C | A at least one | B | C |
+|---|---|---|---|---|---|---|
+| standing clinch (23) | 65% | 65% | 39% | 96% | 87% | 78% |
+| ground (45) | 2% | 7% | 4% | 36% | 36% | 27% |
+
+On standing clinches B and C split some merged pairs A drew as one skeleton, but A gets others right that they miss; overall A and B tie. On the ground every method draws one skeleton across both bodies, or the top fighter only. RTMO is worst throughout.
+**Not scaled up yet; Ansh's call.** Off-the-shelf pose does not give two skeletons in ground tangles at broadcast resolution, so rerunning it there would mostly store wrong skeletons. Options are in PROGRESS.md.
