@@ -2,7 +2,7 @@
 
 ## Needs Ansh
 
-0. **Pose on shots that aren't live: which option (2026-10-26).** Test in DECISIONS.md ("Pose on tangled shots"). Standing clinches: today's method gets two clean skeletons on 65% of frames, ground tangles: no method above 7%. Options: (a) rerun today's method (A) on non-live shots for standing clinches only, about 1 to 2 h free GPU, and leave ground frames without pose; (b) as (a), plus RF-DETR Seg masks on ground frames, so ground states use mask shape and who is on top rather than skeletons; (c) skip the rerun and judge clinch and ground in those shots from boxes, masks and the VLM. Recommended: (b).
+0. **Step 1 report: two calls on tangled frames (2026-10-26).** Details in DECISIONS.md ("Fighting time v2", "The clean-skeleton rule fails its blind check"). (a) Skeletons in tangles: the clean-skeleton rule kept 12 judgeable skeletons and only 3 were really clean. Recommended: no skeletons from frames where the pair is in contact (clinch and ground); those frames get mask features only (posture, who is on top, contact), and skeletons come only from frames where the fighters are apart. (b) Masks and tangle count only in fighting v2 time (14 of 40 checked frames were officials or ceremonies). Recommended: yes. Steps 2 to 5 wait for these answers.
 
 1. **A free DVC remote (not blocking).** Ansh said on 2026-10-17 this can wait. Recommended: DagsHub (free, no card). Sign up at https://dagshub.com with GitHub, connect the `anshv29/cornerman` repo, then share the DVC remote URL and an access token with the agent, for example by putting the token in a gitignored `.env` file. Until then the DVC cache lives only on this laptop.
 
