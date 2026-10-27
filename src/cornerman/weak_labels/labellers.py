@@ -93,18 +93,19 @@ B_FAMILY = {
 }
 
 DIRECTION_TRUST = {
-    "G-called": 0.5,
-    "G-neutral": 0.84,
+    "G-called": 0.7,
+    "G-neutral": 0.9,
     "R-top": 0.95,
     "B-top": 0.85,
     "B-controller": 0.75,
     "even": 0.5,
 }
 """How far each directional vote is trusted, and where the number comes from:
-- G-called 0.5: the fence rule's calls were right 10 of 20 in its by-eye check;
-  the other 10 were neutral, none named the wrong fighter;
-- G-neutral 0.84: 16 of 19 hard negatives (a fighter near a fence, no call) were
-  neutral by eye;
+- G-called 0.7: with the perspective correction, the fence rule's calls were right
+  14 of 20 in a fresh by-eye check; the other 6 were neutral, none named the wrong
+  fighter (10 of 20 without the correction);
+- G-neutral 0.9: 18 of 18 judgeable hard negatives (a fighter near a fence, no call)
+  were neutral by eye; 0.9 since 18 can't show it never misses;
 - R-top 0.95: on ViCoS, where the rules name a top fighter they are right 82 of 84
   (pose) and 86 of 87 (masks); lowered for broadcast footage;
 - B-top 0.85: silver ground direction 6 of 6 by eye, lower tier 4 of 6;

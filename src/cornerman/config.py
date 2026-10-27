@@ -142,9 +142,11 @@ class PerceptionConfig(BaseModel):
     fence_margin: float = Field(default=0.3, ge=0)
     """The pressuring fighter is at least this many body heights farther from the same
     edge, so they stand between the pressured fighter and the open mat."""
-    fence_ky: float = Field(default=1.0, ge=1.0)
+    fence_ky: float = Field(default=2.0, ge=1.0)
     """Vertical image distances are stretched by this before measuring fence distance
-    (perspective: the floor's depth is squashed in the image). 1 means no correction."""
+    (perspective: broadcast cameras sit about 30 degrees above the mat, so the floor's
+    depth shows at about sin 30 = half its length; people don't shrink that way). Set
+    by reasoning; on a fresh blind check calls went from 10 of 20 right to 14 of 20."""
     fence_far: bool = True
     """Whether the far fence (a shallow edge above the feet) can make a cage call."""
     fence_gap: tuple[float, float] = (0.35, 1.5)
