@@ -100,22 +100,22 @@ TANGLE_PAIRS_SCHEMA = pa.DataFrameSchema(
     },
     strict=True,
 )
-"""Per masks-stage frame (tangle stage): the fighter pair as instance numbers (-1, -1 and
-posture "none" when no two people touch), standing or ground, and the instance on top
-(-1 when standing, or too close to call)."""
+"""Per masks-stage frame in fighting time (tangle stage): the fighter pair as instance
+numbers (-1, -1 and posture "none" when no two people touch), standing or ground, and
+the instance on top (-1 when standing, or too close to call)."""
 
 TANGLE_SKELETONS_SCHEMA = pa.DataFrameSchema(
     {
         "frame": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
         "inst": pa.Column(int, pa.Check.ge(0)),  # pyright: ignore[reportUnknownMemberType]
         "in_pair": pa.Column(bool),
-        "clean": pa.Column(bool),
+        "usable": pa.Column(bool),
     },
     strict=True,
     unique=["frame", "inst"],
 )
-"""Per masks-stage person (tangle stage): whether it is one of the touching pair, and
-whether its skeleton lies on its own body (kept even when the other fighter's isn't)."""
+"""Per masks-stage person in fighting time (tangle stage): whether it is one of the
+touching pair, and whether its skeleton may be used (only when no two people touch)."""
 
 CLOCK_SCHEMA = pa.DataFrameSchema(
     {

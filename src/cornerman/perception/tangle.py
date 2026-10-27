@@ -5,9 +5,13 @@ shots fail tracking's two-people live test and never got pose, and no
 off-the-shelf pose method separates ground tangles at broadcast resolution (two
 clean skeletons on 2 to 7% of ground frames). So the `masks` stage stores, every
 0.5 s where the mat shows, each person's mask from RF-DETR Seg and a ViTPose
-skeleton found with every other person greyed out. The `tangle` stage then keeps
-a skeleton only where it is clean and decides standing or ground and who is on
-top from the masks.
+skeleton found with every other person greyed out. The `tangle` stage then decides
+standing or ground and who is on top from the masks, in fighting time only.
+
+Skeletons are never used from a frame where two people touch (Ansh, 2026-10-27).
+A rule meant to keep the clean ones there ("keypoints inside its own mask") failed
+its blind check: it kept 12 judgeable skeletons and 3 were clean, because in a
+tangle the masks bleed onto the other body. Those frames get mask features only.
 
 The rules below were fixed by reasoning before any check against data.
 """
@@ -74,33 +78,6 @@ def fighter_pair(masks: np.ndarray, contact_px: int) -> tuple[int, int, int] | N
             if c > 0 and (best is None or c > best[2]):
                 best = (i, j, c)
     return best
-
-
-def skeleton_clean(
-    kx: np.ndarray,
-    ky: np.ndarray,
-    kc: np.ndarray,
-    own: np.ndarray,
-    other: np.ndarray,
-    scale: float,
-    kp_min: float,
-    min_kps: int = 8,
-    min_inside: float = 0.7,
-    max_other: float = 0.15,
-) -> bool:
-    """Whether a skeleton lies on its own body: at least `min_kps` confident keypoints,
-    at least `min_inside` of them in its own mask (grown 2 px), at most `max_other` in
-    the other fighter's mask and not its own. `scale` maps pixels to mask pixels."""
-    keep = kc >= kp_min
-    if keep.sum() < min_kps:
-        return False
-    h, w = own.shape
-    xs = np.clip((kx[keep] * scale).astype(int), 0, w - 1)
-    ys = np.clip((ky[keep] * scale).astype(int), 0, h - 1)
-    own_g = _grow(own, 2)
-    inside = own_g[ys, xs].mean()
-    on_other = (other[ys, xs] & ~own_g[ys, xs]).mean()
-    return bool(inside >= min_inside and on_other <= max_other)
 
 
 def _bbox(mask: np.ndarray) -> tuple[int, int, int, int]:

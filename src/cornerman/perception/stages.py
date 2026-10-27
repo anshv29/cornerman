@@ -68,7 +68,6 @@ from cornerman.perception.tangle import (
     grey_others,
     pack,
     posture,
-    skeleton_clean,
     small_mask,
     top_of,
     unpack,
@@ -393,15 +392,17 @@ def masks(ctx: StageContext) -> None:
 
 
 def tangle(ctx: StageContext) -> None:
-    """The rules of perception/tangle.py on every masks-stage frame (CPU): the fighter pair,
-    standing or ground, who is on top, and which skeletons are clean."""
+    """The rules of perception/tangle.py on the masks-stage frames in fighting time (CPU):
+    the fighter pair, standing or ground, and who is on top. A person's skeleton is
+    marked usable only in frames where no two people touch."""
     p = ctx.settings.perception
-    width = float(_video_json(ctx)["width"])
     inst = pd.read_parquet(ctx.inputs["masks"] / "instances.parquet")
     saved = np.load(ctx.inputs["masks"] / "masks.npz")
     shape = (int(saved["shape"][0]), int(saved["shape"][1])) if len(inst) else (0, 0)
     all_masks = unpack(saved["packed"], shape) if len(inst) else np.zeros((0, 1, 1), bool)
-    scale = p.masks_width / width
+    fighting = pd.read_parquet(ctx.inputs["fighting"] / "fighting.parquet")
+    in_time = set(fighting.loc[fighting["fighting"], "frame"].tolist())
+    inst = inst[inst["frame"].isin(in_time)]
     pairs: list[dict[str, object]] = []
     skel: list[dict[str, object]] = []
     for frame, g in inst.groupby("frame"):
@@ -419,27 +420,16 @@ def tangle(ctx: StageContext) -> None:
         pairs.append({"frame": f, "t": float(g["t"].iloc[0]), "a": a, "b": b,
                       "contact": contact, "posture": post, "top": top})  # fmt: skip
         for k, r in enumerate(g.itertuples()):
-            in_pair = k in (a, b)
-            other = m[b if k == a else a] if in_pair else np.delete(m, k, axis=0).any(axis=0)
-            clean = skeleton_clean(
-                np.asarray(r.kx, float),
-                np.asarray(r.ky, float),
-                np.asarray(r.kc, float),
-                m[k],
-                other,
-                scale,
-                p.kp_min_conf,
-            )
-            skel.append({"frame": f, "inst": int(cast(int, r.inst)), "in_pair": in_pair,
-                         "clean": clean})  # fmt: skip
+            skel.append({"frame": f, "inst": int(cast(int, r.inst)), "in_pair": k in (a, b),
+                         "usable": pair is None})  # fmt: skip
     pair_df = pd.DataFrame(pairs, columns=["frame", "t", "a", "b", "contact", "posture", "top"])
     pair_df = pair_df.astype({"frame": "int64", "a": "int64", "b": "int64", "contact": "int64",
                               "top": "int64", "t": "float64"})  # fmt: skip
     validate(TANGLE_PAIRS_SCHEMA, pair_df, "tangle pairs").to_parquet(
         ctx.out_dir / "pairs.parquet", index=False
     )
-    skel_df = pd.DataFrame(skel, columns=["frame", "inst", "in_pair", "clean"])
-    skel_df = skel_df.astype({"frame": "int64", "inst": "int64", "in_pair": bool, "clean": bool})
+    skel_df = pd.DataFrame(skel, columns=["frame", "inst", "in_pair", "usable"])
+    skel_df = skel_df.astype({"frame": "int64", "inst": "int64", "in_pair": bool, "usable": bool})
     validate(TANGLE_SKELETONS_SCHEMA, skel_df, "tangle skeletons").to_parquet(
         ctx.out_dir / "skeletons.parquet", index=False
     )
@@ -703,10 +693,8 @@ REAL_PIPELINE: list[Stage] = [
     Stage(
         "tangle",
         tangle,
-        deps=("ingest", "masks"),
+        deps=("ingest", "masks", "fighting"),
         config_keys=(
-            "perception.masks_width",
-            "perception.kp_min_conf",
             "perception.tangle_contact_px",
             "perception.tangle_ground_ratio",
             "perception.tangle_top_margin",

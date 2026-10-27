@@ -240,13 +240,17 @@ def test_real_pipeline_on_synthetic_video(tmp_path: Path, monkeypatch: pytest.Mo
     m = unpack(saved["packed"], (shape[0], shape[1]))
     assert len(m) == len(inst) and (m.sum((1, 2)) == inst["area"].to_numpy()).all()
 
-    # Tangle rules: the red and blue fighters stand 20 px apart in the synthetic video,
-    # so in most frames no two people touch; where a pair is found it is standing.
+    # Tangle rules, in fighting time only: the red and blue fighters stand 20 px apart in
+    # the synthetic video, so in most frames no two people touch; where a pair is found
+    # it is standing, and that frame's skeletons are not usable.
     pairs = pd.read_parquet(d / "tangle" / "pairs.parquet")
-    assert set(pairs["frame"]) == set(inst["frame"])
+    in_time = set(v2.loc[v2["fighting"], "frame"])
+    assert set(pairs["frame"]) == set(inst["frame"]) & in_time
     assert set(pairs["posture"]) <= {"none", "standing"}
     skel = pd.read_parquet(d / "tangle" / "skeletons.parquet")
-    assert len(skel) == len(inst)
+    assert len(skel) == inst["frame"].isin(in_time).sum()
+    touching = set(pairs.loc[pairs["posture"] != "none", "frame"])
+    assert (skel["usable"] == ~skel["frame"].isin(touching)).all()
 
     # Second run is fully cached.
     again = run(REAL_PIPELINE, settings, ["ft_test"])

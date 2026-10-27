@@ -8,7 +8,6 @@ from cornerman.perception.tangle import (
     grey_others,
     pack,
     posture,
-    skeleton_clean,
     small_mask,
     top_of,
     unpack,
@@ -55,17 +54,3 @@ def test_posture_and_top() -> None:
     assert posture(top, bottom) == "ground"
     assert top_of(top, bottom) == 0 and top_of(bottom, top) == 1
     assert top_of(_rect(20, 40, 80, 60), _rect(70, 41, 130, 61)) is None  # side by side
-
-
-def test_skeleton_clean() -> None:
-    own, other = _rect(10, 10, 50, 80), _rect(60, 10, 100, 80)
-    kc = np.full(17, 0.9)
-    on_own = (np.linspace(15, 45, 17), np.linspace(15, 75, 17))
-    assert skeleton_clean(*on_own, kc, own, other, 1.0, 0.3)
-    # Half the keypoints on the other fighter: one skeleton across two bodies.
-    across = (np.r_[np.full(9, 30.0), np.full(8, 80.0)], np.linspace(15, 75, 17))
-    assert not skeleton_clean(*across, kc, own, other, 1.0, 0.3)
-    # Too few confident keypoints.
-    assert not skeleton_clean(*on_own, np.r_[np.full(5, 0.9), np.zeros(12)], own, other, 1.0, 0.3)
-    # Pixel coordinates at 4x the mask's size.
-    assert skeleton_clean(on_own[0] * 4, on_own[1] * 4, kc, own, other, 0.25, 0.3)
