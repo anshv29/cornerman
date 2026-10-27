@@ -2,7 +2,7 @@
 
 ## Needs Ansh
 
-0. **Step 1 report: two calls on tangled frames (2026-10-26).** Details in DECISIONS.md ("Fighting time v2", "The clean-skeleton rule fails its blind check"). (a) Skeletons in tangles: the clean-skeleton rule kept 12 judgeable skeletons and only 3 were really clean. Recommended: no skeletons from frames where the pair is in contact (clinch and ground); those frames get mask features only (posture, who is on top, contact), and skeletons come only from frames where the fighters are apart. (b) Masks and tangle count only in fighting v2 time (14 of 40 checked frames were officials or ceremonies). Recommended: yes. Steps 2 to 5 wait for these answers.
+0. **Step 5 report: three calls before actions (2026-10-27).** Details in DECISIONS.md ("Diagnosis of the first classifier run, and the final Step 2 to 5 numbers"). Silver, out of fold: family accuracy 0.83, balanced 0.81, macro-F1 0.75 (majority 0.71 / 0.33 / 0.28; rules alone 0.64 / 0.61 / 0.58); 8 pair states accuracy 0.74, balanced 0.56. (a) Balancing over-predicts clinch and ground (22% and 27% of live moments vs 8% and 24% in the labels). Recommended: keep balanced training, and correct probabilities back to the label prior before anything per fighter uses them. (b) Clinch controller is weak (silver clinch split recall 0.33) and rests on an unconfirmed VLM answer. Recommended: report clinch merged only for now. (c) Ground direction leans red in live shots (red-top 10% vs blue-top 6%), cause not found. Recommended: find the cause before Step 6. Step 6 (actions) waits for these.
 
 1. **A free DVC remote (not blocking).** Ansh said on 2026-10-17 this can wait. Recommended: DagsHub (free, no card). Sign up at https://dagshub.com with GitHub, connect the `anshv29/cornerman` repo, then share the DVC remote URL and an access token with the agent, for example by putting the token in a gitignored `.env` file. Until then the DVC cache lives only on this laptop.
 
@@ -14,9 +14,18 @@
 
 ## Current spend
 $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs.md`.
-Free Kaggle GPU used so far: about 35.5 hours in total (2026-10-26: about 0.3 h for the tangled-pose test, 0.2 h for the masks smoke run). Kaggle CPU sessions (no GPU quota) run the arena stage. On 2026-10-19 and 10-20: about 3.5 h for the last 24 fights, about 1.7 h of VLM pilots, 0.6 h for a failed full run (out of memory), 3.5 h for the full VLM run. On 2026-10-25: 8.7 h for the 1,000-clip VLM run and 3.4 h for the clinch swap run.
+Free Kaggle GPU used so far: about 38.1 hours in total (2026-10-26 and 27: masks batches 1 to 3, about 2.6 h; arena batches 2 and 3 on CPU sessions, about 14.4 h, no GPU quota) (2026-10-26: about 0.3 h for the tangled-pose test, 0.2 h for the masks smoke run). Kaggle CPU sessions (no GPU quota) run the arena stage. On 2026-10-19 and 10-20: about 3.5 h for the last 24 fights, about 1.7 h of VLM pilots, 0.6 h for a failed full run (out of memory), 3.5 h for the full VLM run. On 2026-10-25: 8.7 h for the 1,000-clip VLM run and 3.4 h for the clinch swap run.
 
 ## Done
+
+### Phase 3, Steps 1 to 5 (finished 2026-10-27)
+- All 53 fights have arena output, fighting v2 and masks (arena batch 3 imported; masks batch 3 run after one failed upload). Nothing left on Kaggle but kernels; no datasets.
+- Ansh's Step 1 calls in code: no skeletons where the fighters touch; masks and tangle only in fighting v2 time. A touching pair counts only if its masks match both fighters' boxes (half the pairs found with the fighters apart were fighter and referee).
+- Step 2, fence rule G (`perception/fence.py`): feet to the nearest real mat edge in body heights, vertical distances x2 for perspective. Fresh blind check: calls 14 of 20 right, never the wrong fighter; hard negatives 18 of 18 neutral (without the correction 10 of 20).
+- Step 3, Dawid-Skene (`weak_labels/`): recovery and property tests pass, including one pinning the non-identifiable case. The 8-state model isn't identifiable with our labellers, so: family by EM over rules and VLM with the VLM's family accuracy fixed (anchor), direction from fixed measured trust.
+- Step 4, state classifier (`events/moments.py`, `events/states.py`, `cornerman states`): HistGradientBoosting on soft labels, class-balanced by family, 5 folds grouped by fight, family then direction by Viterbi. New dependency: scikit-learn.
+- Step 5, `cornerman eval-states`: numbers in Needs Ansh item 0 and DECISIONS.md; balanced accuracy and macro-F1 next to plain accuracy everywhere.
+- Docs: LEARNING.md sections 22 (rulings) to 25.
 
 ### Tier 0, foundation (finished 2026-10-17)
 - Repo skeleton: uv with Python 3.12, `pyproject.toml` with `uv.lock`, ruff, pyright strict (targeted line-level ignores only for pandas/scipy/pandera stub gaps), pytest, hypothesis.
@@ -110,10 +119,9 @@ Free Kaggle GPU used so far: about 35.5 hours in total (2026-10-26: about 0.3 h 
 - The first `pre-commit` run on a new machine downloads Go to build gitleaks, which takes a minute or two.
 
 ## Next
-1. Phase 3: per-state accuracy of the rules labeller against silver, and Dawid-Skene over labellers A and B.
-   **Cage pressure is evaluated with fence-distance geometry, not the VLM** (Ansh, 2026-10-25). The VLM's cage-pressure answer flips with the colour order 46% of the time, and silver has only 1 cage clip. Use the measured distance from each fighter's feet to the fence (SPEC Layer 1 step 5: cage mask and mat homography) at striking range to label pressuring and pressured, and drop the VLM as a cage labeller.
-   Anything per fighter uses `usable_frames` (unflagged fights whole, plus the usable shots of flagged ones), not `usable_fights`.
-2. MLflow comes later, before the first real model fit (Phase 4).
+1. Ansh's calls on the Step 5 report (Needs Ansh item 0).
+2. Then Steps 6 and 7 of the Phase 3 plan: action detector (rules first, one VLM action job on free quota), then labeller C and the events tables.
+3. MLflow before the first real model fit (Phase 4).
 
 **For the next GPU batch:** ft_2b1a88cfe9 is back in `fights.csv` (IMMAF's results put it in the adult 2019 European Middleweight bracket; its "junior" hit was the event banner). Not processed yet. Ansh: process it with the next batch, not on its own. `select_fights` picks it up automatically.
 
