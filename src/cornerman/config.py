@@ -135,6 +135,16 @@ class PerceptionConfig(BaseModel):
     tangle_top_margin: float = Field(default=0.1, ge=0)
     """The top fighter's mask centre must be higher by at least this share of the pair's
     height; closer than that, nobody is called on top."""
+    fence_near: float = Field(default=0.35, gt=0)
+    """Feet within this many body heights of a real mat edge are at the fence (about
+    60 cm for a 1.75 m fighter: one step back and the back touches it). Set by reasoning
+    before looking at data (perception/fence.py)."""
+    fence_margin: float = Field(default=0.3, ge=0)
+    """The pressuring fighter is at least this many body heights farther from the same
+    edge, so they stand between the pressured fighter and the open mat."""
+    fence_gap: tuple[float, float] = (0.35, 1.5)
+    """Striking range for cage pressure: box centres this many body heights apart.
+    Closer is clinch range (the rules' clinch gap), farther is out of range."""
     identity_segment_min_s: float = Field(default=3.0, ge=0)
     """Shots with less fighting time than this are never usable on their own in a flagged
     fight: too few crops to judge (identity_segments)."""
