@@ -27,8 +27,9 @@ answers where classes lost their meaning. The labellers barely overlap (R and B
 meet only on the 780 clips; G only where R says standing apart), so the 8-class
 model is not identifiable, the same failure the recovery tests pin down on
 simulated data. So:
-- the family (standing, clinch, ground) comes from Dawid-Skene EM over R and B,
-  constrained (one accuracy per class), which is identified with two labellers;
+- the family (standing, clinch, ground) comes from Dawid-Skene EM over R and B
+  (`fit_family`). Two labellers don't identify it on their own, so B's family
+  accuracy is fixed from its spot check (the anchor) and EM learns R's;
 - the direction within the family (who presses, who controls, who is on top)
   comes from Dawid-Skene's E step with confusions fixed from measurements, since
   only one or two labellers ever speak to it (DIRECTION_TRUST).
@@ -212,11 +213,34 @@ def family_votes(moments: pd.DataFrame) -> np.ndarray:
     return out
 
 
+VLM_FAMILY_ACCURACY = 0.95
+"""The anchor: the VLM's state family was right in 32 of 32 spot-checked clips (16 silver,
+16 lower tier; agent-judged, DECISIONS.md silver second build). 0.95 rather than 1 since
+a small check can't show it never errs."""
+
+
 def fit_family(votes: np.ndarray) -> ds.DSResult:
-    """Constrained Dawid-Skene over the family votes: each labeller has one accuracy per
-    family, errors spread evenly."""
-    eye = np.eye(len(FAMILIES))
-    return ds.fit(votes, [ds.compatible_init(eye)] * votes.shape[1], compat=[eye, eye])
+    """Dawid-Skene over the family votes of R (column 0) and B (column 1).
+
+    Two labellers don't identify free 3 x 3 confusions: on the real moments, free and
+    constrained fits gave opposite answers (one erased clinch, the other ground). So B
+    is the anchor: its confusion is fixed at VLM_FAMILY_ACCURACY, errors spread evenly,
+    and EM learns R's confusion from the moments where both vote, the only ones that
+    carry information about it. The class prior is then refitted on every voted moment
+    with the confusions fixed, since the clips were sampled to over-represent clinch
+    and ground.
+    """
+    n = len(FAMILIES)
+    eye = np.eye(n)
+    anchor = VLM_FAMILY_ACCURACY * eye + (1 - VLM_FAMILY_ACCURACY) / (n - 1) * (1 - eye)
+    both = (votes != ds.ABSTAIN).all(axis=1)
+    r = ds.fit(votes[both], [ds.compatible_init(eye), anchor], fixed=[1])
+    prior = ds.fit_prior(votes, r.confusion, r.prior)
+    voted = (votes != ds.ABSTAIN).any(axis=1)
+    post = np.tile(prior, (len(votes), 1))
+    post[voted] = ds.posterior(votes[voted], r.confusion, prior)
+    return ds.DSResult(posterior=post, prior=prior, confusion=r.confusion, loglik=r.loglik,
+                       voted=voted)  # fmt: skip
 
 
 def _vote(dist: dict[str, float], toward: str, trust: float, options: tuple[str, ...]) -> None:

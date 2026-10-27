@@ -40,6 +40,10 @@ a Beta(1, 1) prior, and s_jk is proportional to the compatible counts.
 fighter ("they are clinched") leaves the likelihood flat in how the prior splits
 the pair, so untied EM drifts to giving it all to one side.
 
+`fixed` labellers keep their starting confusion matrix: an anchor whose accuracy
+was measured elsewhere. With two labellers, free confusions are not identified;
+fixing one of them makes the other's estimable from their agreement.
+
 Labellers keep their own alphabets (the rules say "clinch" without a controller,
 the fence rule speaks only about cage pressure), which plain majority voting
 cannot handle. The labels mean nothing to EM by themselves: classes can swap
@@ -108,6 +112,7 @@ def fit(
     smoothing: float = 0.01,
     compat: list[np.ndarray] | None = None,
     tied: list[tuple[int, int]] | None = None,
+    fixed: list[int] | None = None,
     max_iter: int = 500,
     tol: float = 1e-7,
 ) -> DSResult:
@@ -141,6 +146,9 @@ def fit(
             pi[a] = pi[b] = (pi[a] + pi[b]) / 2
         new: list[np.ndarray] = []
         for j, c in enumerate(conf):
+            if j in (fixed or []):
+                new.append(c)
+                continue
             counts = np.zeros(c.shape)
             voted = v[:, j] != ABSTAIN
             np.add.at(counts.T, v[voted, j], q[voted])
@@ -184,6 +192,20 @@ def posterior(votes: np.ndarray, confusion: list[np.ndarray], prior: np.ndarray)
         _log_lik_terms(np.asarray(votes, int), [np.log(c) for c in confusion], np.log(prior))
     )
     return p
+
+
+def fit_prior(
+    votes: np.ndarray, confusion: list[np.ndarray], start: np.ndarray, n_iter: int = 200
+) -> np.ndarray:
+    """EM for the class prior alone, confusions held fixed, over the items with a vote.
+    Used when confusions are fitted where labellers overlap (which identifies them) but
+    the overlap isn't a representative sample of items."""
+    v = np.asarray(votes, int)
+    v = v[(v != ABSTAIN).any(axis=1)]
+    pi = np.asarray(start, float) / np.sum(start)
+    for _ in range(n_iter):
+        pi = posterior(v, confusion, pi).mean(axis=0)
+    return pi
 
 
 def accuracy_estimate(result: DSResult) -> float:

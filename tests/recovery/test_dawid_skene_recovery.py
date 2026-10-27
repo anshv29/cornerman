@@ -17,7 +17,7 @@ shows the failure).
 import numpy as np
 from scipy import stats
 
-from cornerman.weak_labels.dawid_skene import ABSTAIN, compatible_init, fit
+from cornerman.weak_labels.dawid_skene import ABSTAIN, compatible_init, fit, fit_prior
 
 K = 4
 PRIOR = np.array([0.5, 0.2, 0.2, 0.1])
@@ -152,3 +152,10 @@ def test_constrained_model_recovers_accuracies_from_two_labellers() -> None:
     assert np.abs(res.prior - PRIOR).max() < 0.02
     for est, t in zip(res.confusion, true, strict=True):
         assert np.abs(est - t).max() < 0.04
+
+
+def test_prior_alone_with_known_confusions() -> None:
+    rng = np.random.default_rng(5)
+    _, votes = simulate(rng, 20000)
+    pi = fit_prior(votes, TRUE, np.full(K, 1 / K))
+    assert np.abs(pi - PRIOR).max() < 0.015

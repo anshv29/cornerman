@@ -78,3 +78,10 @@ def test_constrained_rows_spread_errors_evenly(votes: np.ndarray) -> None:
 def test_tied_classes_share_a_prior(votes: np.ndarray) -> None:
     r = fit(votes, INIT, tied=[(1, 2)])
     assert np.isclose(r.prior[1], r.prior[2])
+
+
+@settings(max_examples=30, deadline=None)
+@given(vote_tables())
+def test_fixed_labellers_keep_their_confusion(votes: np.ndarray) -> None:
+    r = fit(votes, INIT, fixed=[1])
+    assert np.allclose(r.confusion[1], INIT[1] / INIT[1].sum(1, keepdims=True))

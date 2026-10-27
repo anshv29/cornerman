@@ -185,6 +185,13 @@ def main(argv: list[str] | None = None) -> int:
         "--labels", type=Path, nargs="+", required=True, help="labels_*.jsonl runs, combined"
     )
     sub.add_parser("gold-vicos", help="measure the rules labeller on ViCoS jiu-jitsu (local)")
+    p_states = sub.add_parser(
+        "states", help="moments, weak labels and the state classifier, out of fold (laptop)"
+    )
+    p_states.add_argument("--config", type=Path, default=Path("configs/kaggle_real.yaml"))
+    p_states.add_argument("--out", type=Path, default=Path("data/states"))
+    p_evs = sub.add_parser("eval-states", help="the state classifier against silver")
+    p_evs.add_argument("--out", type=Path, default=Path("data/states"))
     p_purge = sub.add_parser("purge-fights", help="delete every local trace of some fights")
     p_purge.add_argument("ids", type=Path, help="a text file with one fight_id per line")
     args = parser.parse_args(argv)
@@ -245,6 +252,10 @@ def main(argv: list[str] | None = None) -> int:
         for k, v in rules_report(rules_on_frames(load())).items():
             print(f"{k:<24} {v:.3f}")
         return 0
+    if args.command == "states":
+        return _states(args.config, args.out)
+    if args.command == "eval-states":
+        return _eval_states(args.out)
     if args.command == "purge-fights":
         from cornerman.pipeline.purge import purge
 
@@ -283,6 +294,43 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{r.fight_id:<24} {r.stage:<12} {r.status}")
     counts = Counter(r.status.value for r in results)
     print(", ".join(f"{n} {k}" for k, n in sorted(counts.items())))
+    return 0
+
+
+def _states(config: Path, out: Path) -> int:
+    from cornerman.contracts.perception import population_fights
+    from cornerman.events.moments import all_moments
+    from cornerman.events.states import cross_validate
+    from cornerman.weak_labels.labellers import attach_vlm
+
+    settings = load_settings(config)
+    derived = Path("data/derived")
+    fights = population_fights(derived)
+    moments = all_moments(derived, fights, settings.perception)
+    gold = Path("data/gold")
+    moments = attach_vlm(
+        moments, pd.read_parquet(gold / "silver.parquet"), pd.read_parquet(gold / "clips.parquet")
+    )
+    out.mkdir(parents=True, exist_ok=True)
+    moments.to_parquet(out / "moments.parquet", index=False)
+    with_masks = sum((derived / f / "tangle" / "manifest.json").exists() for f in fights)
+    print(f"{len(moments)} moments from {moments['fight_id'].nunique()} fights "
+          f"({with_masks} with masks)")  # fmt: skip
+    pred, summaries = cross_validate(moments, seed=settings.seed)
+    pred.to_parquet(out / "predictions.parquet", index=False)
+    (out / "dawid_skene.json").write_text(json.dumps(summaries, indent=2))
+    print(pred["pred"].value_counts().to_string())
+    return 0
+
+
+def _eval_states(out: Path) -> int:
+    from cornerman.eval.states import report
+
+    r = report(pd.read_parquet(out / "predictions.parquet"),
+               pd.read_parquet(Path("data/gold") / "silver.parquet"))  # fmt: skip
+    for k, v in r.items():
+        print(f"== {k}")
+        print(v.to_string() if isinstance(v, pd.DataFrame) else json.dumps(v, indent=1))
     return 0
 
 
