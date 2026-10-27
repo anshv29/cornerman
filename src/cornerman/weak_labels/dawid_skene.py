@@ -18,6 +18,28 @@ and EM maximises it over pi and every C_j:
 A small pseudo-count (`smoothing`) is added in the M step, a Dirichlet prior
 that keeps a confusion row away from exact zeros when a class is rare.
 
+`compat` switches to a constrained model, needed when labellers rarely vote on the
+same item. Confusions are learned from agreement between labellers; where they
+seldom overlap, the free K x L_j matrices have too many parameters and EM drifts to
+answers where the classes lose their meaning (seen on the real moments: the rules
+and the mask labeller never vote on the same moment, by design, and "neutral"
+ended up explaining the masks' clinch votes). The constrained row for class k is
+
+    C_j[k, l] = a_jk * s_jk[l]               for labels l compatible with k,
+    C_j[k, l] = (1 - a_jk) / (#incompatible) for the others,
+
+with a_jk the labeller's accuracy on class k (the chance its label fits) and s_jk
+a split over the compatible labels, both learned. Errors are spread evenly, so a
+class can't quietly take over another class's labels. A class with no compatible
+label in an alphabet gets a uniform row: that labeller says nothing about it.
+The M step is closed form: a_jk = (mass on compatible labels + 1) / (all mass + 2),
+a Beta(1, 1) prior, and s_jk is proportional to the compatible counts.
+
+`tied` pairs of classes share one prior probability. Here they are mirror images
+(red on top, blue on top): the corner colour is arbitrary, and a vote that names no
+fighter ("they are clinched") leaves the likelihood flat in how the prior splits
+the pair, so untied EM drifts to giving it all to one side.
+
 Labellers keep their own alphabets (the rules say "clinch" without a controller,
 the fence rule speaks only about cage pressure), which plain majority voting
 cannot handle. The labels mean nothing to EM by themselves: classes can swap
@@ -84,6 +106,8 @@ def fit(
     init: list[np.ndarray],
     prior: np.ndarray | None = None,
     smoothing: float = 0.01,
+    compat: list[np.ndarray] | None = None,
+    tied: list[tuple[int, int]] | None = None,
     max_iter: int = 500,
     tol: float = 1e-7,
 ) -> DSResult:
@@ -113,18 +137,45 @@ def fit(
         q, ll = _normalise(_log_lik_terms(v, [np.log(c) for c in conf], np.log(pi)))
         history.append(ll)
         pi = (q.sum(0) + smoothing) / (len(q) + k * smoothing)
+        for a, b in tied or []:
+            pi[a] = pi[b] = (pi[a] + pi[b]) / 2
         new: list[np.ndarray] = []
         for j, c in enumerate(conf):
-            counts = np.full(c.shape, smoothing)
+            counts = np.zeros(c.shape)
             voted = v[:, j] != ABSTAIN
             np.add.at(counts.T, v[voted, j], q[voted])
-            new.append(counts / counts.sum(1, keepdims=True))
+            if compat is None:
+                counts += smoothing
+                new.append(counts / counts.sum(1, keepdims=True))
+            else:
+                new.append(_constrained(counts, np.asarray(compat[j]) > 0, smoothing))
         conf = new
         if len(history) > 1 and abs(history[-1] - history[-2]) < tol * max(1.0, abs(ll)):
             break
     post = np.tile(pi, (len(votes), 1))
     post[seen] = posterior(v, conf, pi)
     return DSResult(posterior=post, prior=pi, confusion=conf, loglik=history, voted=seen)
+
+
+def _constrained(counts: np.ndarray, fits: np.ndarray, smoothing: float) -> np.ndarray:
+    """The constrained confusion matrix (see the module docstring) from expected counts."""
+    out = np.empty(counts.shape)
+    n_labels = counts.shape[1]
+    for k in range(len(counts)):
+        ok = fits[k]
+        n_ok = int(ok.sum())
+        if n_ok == 0:
+            out[k] = 1.0 / n_labels
+            continue
+        split = counts[k, ok] + smoothing
+        split = split / split.sum()
+        if n_ok == n_labels:
+            out[k] = split
+            continue
+        acc = (counts[k, ok].sum() + 1) / (counts[k].sum() + 2)
+        out[k, ok] = acc * split
+        out[k, ~ok] = (1 - acc) / (n_labels - n_ok)
+    return out
 
 
 def posterior(votes: np.ndarray, confusion: list[np.ndarray], prior: np.ndarray) -> np.ndarray:

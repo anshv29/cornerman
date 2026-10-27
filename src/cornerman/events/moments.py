@@ -23,9 +23,11 @@ feature is missing and the mask labeller can say "ground" but not who is on top.
 Labellers per moment (each may abstain, None):
 - A, rules on pose and boxes (gold/rules.py), only where not in contact:
   standing, clinch, ground-red-top, ground-blue-top, ground-even.
-- M, mask rules (perception/tangle.py), only where a touching pair is found:
-  standing-contact, ground-red-top, ground-blue-top, ground-even,
-  ground-top-unknown (on top is found, but not who, outside live shots).
+- M, mask rules (perception/tangle.py), wherever the masks stage ran: apart (no
+  touching fighter pair), standing-contact, ground-red-top, ground-blue-top,
+  ground-even, ground-top-unknown (on top is found, but not who, outside live
+  shots). "apart" is a label, not an abstention: the mask labeller's silence
+  depends on the state, and Dawid-Skene assumes abstentions don't.
 - G, fence distance (perception/fence.py), standing apart at striking range:
   neutral, red-pressuring, blue-pressuring.
 """
@@ -43,6 +45,7 @@ from cornerman.perception.fence import cage_call, feet, fence_distance, real_edg
 
 A_LABELS = ("standing", "clinch", "ground-red-top", "ground-blue-top", "ground-even")
 M_LABELS = (
+    "apart",
     "standing-contact",
     "ground-red-top",
     "ground-blue-top",
@@ -218,6 +221,7 @@ def fight_moments(fight_dir: Path, p: PerceptionConfig) -> pd.DataFrame:
             side = _pair_sides(a, b, red, blue) if touching and both else None
             is_pair = touching and (side is not None or not both)
             r["mask_pair"] = is_pair
+            m_label = None if is_pair else "apart"
             if is_pair:
                 x1, y1 = min(a[0], b[0]), min(a[1], b[1])
                 x2, y2 = max(a[2], b[2]), max(a[3], b[3])

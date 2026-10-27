@@ -122,3 +122,33 @@ def test_coarse_labellers_alone_are_not_identifiable() -> None:
     res = fit(votes, [compatible_init(c) for c in COMPAT[:3]])
     worst = max(float(np.abs(e - t).max()) for e, t in zip(res.confusion, TRUE[:3], strict=True))
     assert worst > 0.08
+
+
+def test_constrained_model_recovers_accuracies_from_two_labellers() -> None:
+    """The constrained model needs less: two labellers that each cover only part of the
+    classes (like the rules and the mask labeller) plus one full-alphabet labeller that
+    is often silent. Truth drawn from the constrained family; each accuracy comes back."""
+    rng = np.random.default_rng(3)
+    compat = [
+        np.array([[1, 0], [1, 0], [0, 1], [0, 1]]),  # says "first half" / "second half"
+        np.eye(4),
+        np.eye(4),
+    ]
+    acc = [np.array([0.9, 0.8, 0.85, 0.7]), np.array([0.8, 0.7, 0.75, 0.9]),
+           np.array([0.7, 0.75, 0.8, 0.85])]  # fmt: skip
+    true: list[np.ndarray] = []
+    for c, a in zip(compat, acc, strict=True):
+        n_ok = c.sum(1, keepdims=True)
+        n_bad = c.shape[1] - n_ok
+        true.append(np.where(c > 0, a[:, None] / n_ok, (1 - a[:, None]) / n_bad))
+    z = rng.choice(K, size=100000, p=PRIOR)  # errors shrink slowly: ~0.05 at 30k
+    votes = np.full((len(z), 3), ABSTAIN)
+    for j, (c, rate) in enumerate(zip(true, (0.3, 0.5, 0.8), strict=True)):
+        cum = np.cumsum(c[z], axis=1)
+        says = (rng.random((len(z), 1)) > cum).sum(axis=1)
+        speaks = rng.random(len(z)) >= rate
+        votes[speaks, j] = says[speaks]
+    res = fit(votes, [compatible_init(c) for c in compat], compat=compat)
+    assert np.abs(res.prior - PRIOR).max() < 0.02
+    for est, t in zip(res.confusion, true, strict=True):
+        assert np.abs(est - t).max() < 0.04

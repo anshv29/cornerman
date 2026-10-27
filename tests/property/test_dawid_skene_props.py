@@ -60,3 +60,21 @@ def test_outputs_are_distributions(votes: np.ndarray) -> None:
     assert np.allclose(r.prior.sum(), 1)
     for c in r.confusion:
         assert np.allclose(c.sum(axis=1), 1) and (c > 0).all()
+
+
+@settings(max_examples=30, deadline=None)
+@given(vote_tables())
+def test_constrained_rows_spread_errors_evenly(votes: np.ndarray) -> None:
+    compat = [np.eye(3), np.array([[1, 0], [0, 1], [0, 1]])]
+    r = fit(votes, INIT, compat=compat)
+    c = r.confusion[0]
+    for k in range(3):
+        wrong = np.delete(c[k], k)
+        assert np.allclose(wrong, wrong[0]) and np.isclose(c[k].sum(), 1)
+
+
+@settings(max_examples=30, deadline=None)
+@given(vote_tables())
+def test_tied_classes_share_a_prior(votes: np.ndarray) -> None:
+    r = fit(votes, INIT, tied=[(1, 2)])
+    assert np.isclose(r.prior[1], r.prior[2])
