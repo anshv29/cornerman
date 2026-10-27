@@ -385,3 +385,31 @@ On standing clinches B and C split some merged pairs A drew as one skeleton, but
 New core dependency: scikit-learn (1.9.1), for `HistGradientBoostingClassifier`: fast on CPU, handles missing features natively (skeleton features are missing in every touching moment, red/blue ones outside live shots). Soft labels as sample weights (a row per pair state with weight at least 0.02). Grouped 5-fold CV by fight, seed 0; Dawid-Skene refit inside each fold on training fights only, so no fight's own labels (including its VLM answers, which silver is built from) reach the model that predicts it.
 **Decision rule.** Family first, then direction, each smoothed by Viterbi (stay 0.9 per 0.5 s; red-top and blue-top can't swap directly). Argmax over the 8 pair states predicted standing 98% of the time while the labels put clinch near 15%, because an undirected clinch splits its mass between two controllers and neutral wins with under half.
 Outside live shots red and blue are unknown, so only the family of a prediction is used there (`family_only`).
+
+## 2026-10-27: Diagnosis of the first classifier run, and the final Step 2 to 5 numbers
+**Ansh asked for a diagnosis** after the first run (family 74% vs majority 71%, clinch recall 0).
+- Class balance: in the training labels clinch is 8% of the soft-label mass, standing 68%, ground 24%; the two pressure states take 39% (fence over-calls).
+- Features reach clinch moments: on silver clinch moments the contact flag is set in 71%, mask features present in 52% (the rest were fights still waiting for masks then), box gap and IoU in 50%, merged-box shape in 42%; skeleton features absent, as ruled. But masks touching while standing also fires on 17% of silver standing moments, so it isn't specific; the mean clinch probability on true clinch moments was 0.16.
+- Fix: class-balanced weights at the family level (each family gets the same total training mass; directions keep their relative mass). On the same 36-fight data: family accuracy 0.74 to 0.85, balanced accuracy 0.43 to 0.85, macro-F1 0.43 to 0.81, clinch recall 0 to 0.83. Balanced accuracy and macro-F1 are now in every report.
+**Fence rule, two fixes set by reasoning**: no far-fence calls (V1), vertical distances x2 for perspective (V2, a camera about 30 degrees above the mat). On round 1's 40 moments (dev): V1 7 calls, 5 right; V2 10 calls, 8 right (was 20 and 10). V2 chosen, then tested on a fresh blind sample (`experiments/fence_check.py sample2`, seed 1, round 1 left out, verdicts in `experiments/fence_verdicts_round2.csv` before the key): **calls 14 of 20 right, 6 neutral, 0 the wrong fighter; hard negatives 18 of 18 neutral** (2 can't judge). V2 is the default (`fence_ky` = 2). Trust in the weak labels: G calls 0.7, G neutral 0.9. Agent-judged, n = 20 per set.
+**Final run, all 53 fights with masks, 48,697 moments, out of fold, silver (127 clips, 772 moments):**
+
+| | accuracy | balanced acc. | macro-F1 |
+|---|---|---|---|
+| family, classifier | 0.83 | 0.81 | 0.75 |
+| family, majority | 0.71 | 0.33 | 0.28 |
+| family, rules alone | 0.64 | 0.61 | 0.58 |
+| pair (8 states), classifier | 0.74 | 0.56 | 0.47 |
+| pair, majority | 0.70 | 0.17 | 0.14 |
+| pair, rules alone | 0.53 | 0.30 | 0.27 |
+| family, plain weights (no balancing) | 0.75 | 0.50 | 0.50 |
+
+- Per state (both fighters counted): neutral P 0.94 R 0.85; clinch controlling/controlled P 0.42 R 0.33 (merged clinch recall 0.65, the rules alone 0.66); ground top/bottom P 0.51 R 0.83; cage pressure 0 of 6 silver moments (silver has 1 cage clip; cage accuracy is the fence check above); scramble predicted 36 times, never in silver.
+- By stratum, family accuracy: apart 0.89, close 0.87, merged 0.77, ground 0.68.
+- Lower tier (rules abstained, family only): accuracy 0.56, balanced 0.55, macro-F1 0.55; majority 0.44 / 0.33 / 0.21; rules 0.34 / 0.33 / 0.35.
+- Label-free: impossible-transition rate 0 (median per fight; Viterbi forbids top swaps), compatibility violations 0 by construction.
+- The 80% target: family accuracy 0.83 is above it on silver; pair accuracy 0.74 and balanced 0.56 are not. Silver leans easy.
+**Open issues.**
+- Balancing over-predicts clinch and ground: in live shots the model says standing 51%, clinch 22%, ground 27%, against label mass 68 / 8 / 24.
+- Direction lean: in live shots red-top 10% vs blue-top 6%. Not explained yet (outside live shots the direction is arbitrary and rows are marked `family_only`; there red-top is 45%).
+- Clinch controller is weak: of silver blue-clinch moments, 40 of 90 were predicted red-clinch.
