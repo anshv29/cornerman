@@ -492,3 +492,62 @@ No off-the-shelf method separates ground tangles at broadcast resolution: all th
 2. *Why would bottom-up do worse in tangles, when it's meant for crowds?* Crowded scenes in its training data are mostly people standing next to or in front of each other, with most of each body visible. In a guard one body is mostly under the other. The keypoints it can't see it can't group, and the ones it sees get attached to the wrong person.
 3. *How do you judge three methods fairly by eye?* Same frames, same colours and keypoint threshold, no boxes drawn, a random order per frame, verdicts written down and committed before opening the key. It's still one judge, so the numbers have wide error bars (45 ground frames).
 4. *Why can't one model's mask vet another model's skeleton in a tangle?* Their errors are correlated: the overlap that confuses pose also confuses segmentation, so the mask is wrong exactly where you need it to be right.
+
+**Ansh's calls after the check (2026-10-27).** No skeletons from any frame where the two fighters touch, clinch or ground: those frames get mask features only (standing or ground, who is on top, how much they touch). Skeletons come only from frames where the fighters are apart. And masks count only in fighting time (v2). One more thing turned up when this was built: in live shots, about half the "touching pairs" found with the fighters a body height apart were a fighter and the referee. So where both fighters are boxed, a touching pair only counts if its two masks match the two fighters' boxes.
+
+## 23. Cage pressure from fence distance
+
+**Problem.** Two taxonomy states, cage-pressuring and cage-pressured, depend on where the fence is. The VLM can't be used for them: its answer to "who is backed up" flips with the order the colours are named in 46% of the time, which is position bias, not vision. Silver has a single cage clip, so there is nothing to learn from either.
+
+**Approach.** Measure it. The arena stage stores the mat's outline in every sampled frame: the canvas has one colour, so the pixels close to it, cleaned up and wrapped in a convex hull, give the visible mat. The fence stands where the mat ends. Each fighter stands where their ankles are (or the bottom of their box when the ankles aren't seen), and the distance from that point to the nearest edge of the hull, divided by the fighters' mean box height, says how close to the fence they are in body heights.
+
+Not every edge of the hull is a fence. In a tight shot the canvas runs off the side of the picture, and at the bottom it disappears behind the score bar. Those edges are the frame, not the cage, and someone standing there is not against anything. So an edge is dropped when both its ends lie on the same side of the frame, or both lie in the bottom 15% where the score bar sits.
+
+The rule (thresholds set by reasoning and committed before any look at data): both fighters standing, not touching, 0.35 to 1.5 body heights apart (striking range). If one fighter's feet are within 0.35 body heights of a real edge (about 60 cm: one step back and the back touches the fence) and the other is at least 0.3 body heights farther from that same edge, the first is pressured and the second pressuring. If nobody is near a fence, the moment is neutral. If someone is near a fence but the other isn't in front of them (both side by side along the fence), the rule says nothing.
+
+**Why not a homography.** SPEC asks for a per-shot homography to mat coordinates, which would turn image distances into real ones. It needs four known points on the mat in each shot (cage corners, centre logo), found automatically across camera angles. That is a project of its own. Image distance in body heights is a first version that works where the camera looks across the cage, and it is honest about the case where it fails (next paragraph).
+
+**What breaks it.** Foreshortening. On the far side of the cage the floor is squashed vertically in the image while people are not, so a gap of a body height on the far side can look like a third of one. That makes the rule call pressure on fighters who still have room behind them. Bodies are also not upright in exchanges, ankles get hidden, and the hull edge is the base of the fence, which padding and logos can blur.
+
+**How it did.** A blind look at 40 thumbnails (seed 0, key opened after the verdicts; agent-judged, blind to the set but not to the footage): of 20 moments the rule called pressure, 10 were right and 10 were neutral by eye. It never named the wrong fighter. Of 19 judgeable hard negatives (a fighter near a fence, no call), 16 were neutral. So the rule finds the right fighter but over-calls. The wrong calls sat just under the threshold (nearest-fence distance 0.23 to 0.32), mostly on the far fence; calls under about 0.2 were right 8 of 9. That last number was seen on the check sample, so it can't be used to retune without a fresh check.
+
+**Interview questions.**
+1. *Why normalise by body height?* It makes the number roughly independent of zoom: a wide shot and a tight one give similar values for the same real distance. It doesn't fix perspective within a shot, which is why the far fence over-calls.
+2. *Why does the rule require the other fighter to be farther from the same edge?* Being near a fence isn't being pressured. Both fighters can circle along the fence side by side. Pressure means the opponent cuts off the open mat, so they must be between you and the middle.
+3. *How would you fix the false calls?* A homography from detected cage corners would give real distances. Short of that, a stricter threshold on far edges only, tested on fresh moments, not on the 40 used here.
+
+## 24. Weak supervision with Dawid-Skene, and when it can't tell
+
+**Problem.** There are no human labels. There are several automatic labellers, each noisy in its own way: rules over pose and boxes, rules over masks, the fence rule, and the VLM. They disagree. We want, for each moment, a probability for each state, and an estimate of how good each labeller is, without ground truth.
+
+**The model.** Dawid and Skene (1979) were combining doctors' diagnoses. Each item has a true class z that nobody sees. Each labeller j, given the truth k, gives label l with probability C_j[k, l], its confusion matrix, and labellers make their mistakes independently of each other once the truth is fixed. With a class prior pi, one item's votes have probability
+
+    p(votes) = sum_k pi[k] * prod over labellers who voted of C_j[k, vote_j]
+
+EM maximises this over pi and the C_j:
+- E step: for each item, the posterior over the truth is proportional to pi[k] times the product of C_j[k, vote_j].
+- M step: pi is the average posterior. C_j[k, l] is the posterior weight of class k on items where labeller j said l, divided by its weight on all items labeller j voted on.
+Labellers here keep their own alphabets (the fence rule only has three labels), and an abstention simply drops out of the product.
+
+**Recovery tests first.** Simulate items with known truth, labellers with known confusions, alphabets and abstentions; fit; check the confusions and prior come back and the posteriors are calibrated (when the model says 80%, it is right about 80% of the time). Two lessons came out of the tests before any real data:
+- Errors shrink with more items (about 0.06 at 8,000, 0.02 at 30,000, 0.01 at 100,000), so EM is consistent here, but a rare class needs many items.
+- With one full-alphabet labeller and two that each merge two classes, EM lands on a different answer that fits the votes just as well, every seed. That is identifiability: Kruskal's condition says three labellers determine the confusions uniquely only if their matrices are different enough (their k-ranks add up to at least 2K + 2). Merged classes lower the k-rank. A test pins this failure so nobody "fixes" it by loosening tolerances.
+
+**What happened on the real moments.** The 8-class model (neutral, pressuring both ways, clinch both ways, top both ways, scramble) did not settle. Free confusions: classes drifted until "neutral" was explaining the mask labeller's clinch votes. One accuracy per class with errors spread evenly: better, but undirected votes ("they're clinched", no controller) piled onto one colour, because the likelihood is flat in how they split; tying mirror classes' priors fixed that, and then the "neutral" class soaked up mask votes the ground classes explained badly. The cause is the same identifiability problem, in the data:
+- The pose rules only speak where the fighters are apart and the mask rules only where they touch, so those two never vote on the same moment. They are two halves of one labeller that share a contact test, so they enter as one labeller, R.
+- The fence rule speaks only where R already says "standing apart", so it adds nothing about the family.
+- The VLM covers only the 780 clips. R and the VLM vote together on 1,827 moments.
+That leaves two labellers for the family and one for each direction. Two labellers don't identify a free 3 x 3 confusion each: on the real data, a free fit erased clinch and a constrained one erased ground. Neither answer came from the data; both came from the assumption.
+
+**What we do.** Two levels, and an anchor.
+- Family (standing, clinch, ground): Dawid-Skene over R and the VLM, with the VLM's confusion fixed from outside: its state family was right in 32 of 32 spot-checked clips, so its accuracy is set to 0.95 with errors spread evenly. Fixing one labeller makes the other identifiable from their agreement. EM learns R's confusion on the 1,827 moments where both vote, then the class prior alone is refitted on every voted moment, since the clips over-represent clinch and ground.
+- Direction (who presses, who controls, who is on top): only one or two labellers ever speak to it, so EM has nothing to learn from. The E step runs with confusions fixed from measurements: the fence check (calls right 50%, never the wrong fighter), ViCoS (the rules' top call right 98% when they name one), the silver spot check for the VLM; the VLM's clinch controller is an assumption (0.75), flagged as one.
+- The soft label is P(family) times P(direction given family).
+
+What the anchored fit says: when R says ground, it is ground about 75% of the time. When R says clinch (mostly two masks touching while standing), the VLM usually calls it standing, so it is clinch only about 15% of the time. R's clinch signal is weak; the classifier inherits that.
+
+**Interview questions.**
+1. *Why not just take a majority vote?* Labellers have different alphabets and different reliability, and majority voting can't weigh a reliable labeller above a noisy one or learn that one labeller confuses two specific classes. Dawid-Skene does both, when it's identified.
+2. *What does "not identifiable" mean here, concretely?* Two different settings of the confusions and prior give exactly the same probability to every possible pattern of votes. No amount of data picks between them. EM returns whichever its start leads to.
+3. *Isn't fixing the VLM's accuracy cheating?* It's a prior from an outside measurement, stated and checked by eye on 32 clips. The alternative was an answer chosen silently by the model's assumptions. The cost is that the labels are only as good as that anchor: if the VLM's family accuracy is really lower, R's estimated accuracy is off too.
+4. *Why do two prompts of one VLM count as one labeller?* Dawid-Skene multiplies the labellers' evidence as if they were independent witnesses. Two prompts on the same model and the same clip make the same mistakes, so counting both would double the VLM's weight on exactly the clips where it is wrong.
