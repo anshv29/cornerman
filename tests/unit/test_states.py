@@ -36,3 +36,25 @@ def test_smooth_picks_the_family_first() -> None:
     m = pd.DataFrame({"fight_id": ["a"] * 4, "t": [0.0, 0.5, 1.0, 1.5]})
     path: list[str] = [PAIR_STATES[int(i)] for i in smooth(m, p, 0.9, 1.0)]
     assert set(path) <= {"red-clinch", "blue-clinch"}
+
+
+def test_family_balance_equalises_family_mass() -> None:
+    from cornerman.events.states import family_balance
+    from cornerman.weak_labels.labellers import FAMILIES, FAMILY
+
+    soft = np.zeros((10, len(PAIR_STATES)))
+    soft[:8, PAIR_STATES.index("neutral")] = 1
+    soft[8, PAIR_STATES.index("red-clinch")] = 1
+    soft[9, PAIR_STATES.index("red-top")] = 1
+    w = family_balance(soft)
+    mass = soft.sum(0) * w
+    per = [sum(mass[i] for i, p in enumerate(PAIR_STATES) if FAMILY[p] == f) for f in FAMILIES]
+    assert np.allclose(per, per[0])
+
+
+def test_balanced_accuracy_of_always_majority() -> None:
+    from cornerman.eval.states import balanced
+
+    truth = pd.Series(["a"] * 8 + ["b", "c"])
+    bal, f1 = balanced(truth, pd.Series(["a"] * 10))
+    assert np.isclose(bal, 1 / 3) and f1 < 0.33

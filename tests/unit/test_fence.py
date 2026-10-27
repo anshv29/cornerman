@@ -48,3 +48,20 @@ def test_cage_call() -> None:
     # Near the bottom of the picture is the frame edge, not a fence.
     assert cage_call((300, 440), (500, 300), h, edges, 0.35, 0.3) == "neutral"
     assert cage_call((300, 170), (500, 300), h, [], 0.35, 0.3) is None
+
+
+def test_far_fence_and_perspective_options() -> None:
+    from cornerman.perception.fence import is_far
+
+    edges = real_edges(*WIDE, W, H)  # only the far fence at y = 150
+    h = 200.0
+    assert is_far(edges[0], (500, 170))
+    # Red pinned on the far fence: called by default, not without the far fence.
+    assert cage_call((500, 170), (520, 300), h, edges, 0.35, 0.3) == "red-pressured"
+    assert cage_call((500, 170), (520, 300), h, edges, 0.35, 0.3, far=False) == "neutral"
+    # 60 px from the far fence is 0.3 body heights in the image, 0.6 once stretched 2x.
+    assert cage_call((500, 210), (520, 400), h, edges, 0.35, 0.3) == "red-pressured"
+    assert cage_call((500, 210), (520, 400), h, edges, 0.35, 0.3, ky=2.0) == "neutral"
+    # A side fence (steep) still counts without the far fence.
+    side = real_edges(*CAGE, W, H)
+    assert not all(is_far(e, (450, 300)) for e in side)

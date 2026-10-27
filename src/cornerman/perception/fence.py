@@ -71,9 +71,12 @@ def real_edges(
     return out
 
 
-def point_segment(px: float, py: float, seg: Segment) -> float:
-    """Distance in pixels from a point to a line segment."""
+def point_segment(px: float, py: float, seg: Segment, ky: float = 1.0) -> float:
+    """Distance in pixels from a point to a line segment, with vertical image distances
+    stretched by `ky` (a perspective correction: the floor's depth is squashed in the
+    image, people aren't)."""
     x0, y0, x1, y1 = seg
+    py, y0, y1 = py * ky, y0 * ky, y1 * ky
     dx, dy = x1 - x0, y1 - y0
     length2 = dx * dx + dy * dy
     u = 0.0 if length2 == 0 else min(1.0, max(0.0, ((px - x0) * dx + (py - y0) * dy) / length2))
@@ -102,11 +105,26 @@ def feet(
     return (x1 + x2) / 2, y2
 
 
-def fence_distance(point: tuple[float, float], edges: Sequence[Segment]) -> tuple[float, int]:
+FAR_SLOPE = 30.0
+"""An edge flatter than this many degrees from horizontal that lies above a fighter's
+feet in the image is the far fence."""
+
+
+def is_far(seg: Segment, point: tuple[float, float]) -> bool:
+    """Whether `seg` is the far fence as seen from `point`: shallow, and above the feet."""
+    x0, y0, x1, y1 = seg
+    angle = abs(np.degrees(np.arctan2(y1 - y0, x1 - x0)))
+    angle = min(angle, 180 - angle)
+    return bool(angle < FAR_SLOPE and max(y0, y1) < point[1])
+
+
+def fence_distance(
+    point: tuple[float, float], edges: Sequence[Segment], ky: float = 1.0
+) -> tuple[float, int]:
     """(distance in pixels to the nearest edge, its index), or (inf, -1) with no edges."""
     if not edges:
         return float("inf"), -1
-    d = [point_segment(point[0], point[1], e) for e in edges]
+    d = [point_segment(point[0], point[1], e, ky) for e in edges]
     k = int(np.argmin(d))
     return d[k], k
 
@@ -118,21 +136,27 @@ def cage_call(
     edges: Sequence[Segment],
     near: float,
     margin: float,
+    ky: float = 1.0,
+    far: bool = True,
 ) -> str | None:
     """ "red-pressured", "blue-pressured", "neutral", or None (abstain).
 
     `red` and `blue` are feet points in pixels and `body_h` the mean box height;
-    the caller has already checked both are standing apart at striking range.
+    the caller has already checked both are standing apart at striking range. `ky`
+    stretches vertical distances (perspective correction); with `far` False, the far
+    fence (`is_far`) can't make a call: a fighter near only the far fence is neutral.
     """
     if not edges or body_h <= 0:
         return None
-    dr, er = fence_distance(red, edges)
-    db, eb = fence_distance(blue, edges)
+    ok_r = [e for e in edges if far or not is_far(e, red)]
+    ok_b = [e for e in edges if far or not is_far(e, blue)]
+    dr, er = fence_distance(red, ok_r, ky)
+    db, eb = fence_distance(blue, ok_b, ky)
     dr, db = dr / body_h, db / body_h
     if min(dr, db) > near:
         return "neutral"
     if dr <= db:
-        other = point_segment(blue[0], blue[1], edges[er]) / body_h
+        other = point_segment(blue[0], blue[1], ok_r[er], ky) / body_h
         return "red-pressured" if other - dr >= margin else None
-    other = point_segment(red[0], red[1], edges[eb]) / body_h
+    other = point_segment(red[0], red[1], ok_b[eb], ky) / body_h
     return "blue-pressured" if other - db >= margin else None

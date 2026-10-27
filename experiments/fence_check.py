@@ -2,6 +2,13 @@
 
     uv run python experiments/fence_check.py sample OUT_DIR
     uv run python experiments/fence_check.py score OUT_DIR VERDICTS_CSV
+    uv run python experiments/fence_check.py sample2 OUT_DIR   (round 2, below)
+
+Round 2 (2026-10-27): after round 1 the far fence was the main source of false calls.
+Two fixes were set by reasoning (no far-fence calls; vertical distances x2 for
+perspective) and compared on round 1's 40 moments (dev): x2 kept 8 of 10 calls right
+against 10 of 20. Round 2 tests x2 on a fresh sample, seed 1, round 1's moments left
+out, with the same tiles, the same two sets and the same verdict rules.
 
 Silver has 1 cage clip, so G gets its own check. Thumbnails (arena stage, every
 5 s) at moments where G's conditions hold (both fighters boxed in a live shot,
@@ -82,13 +89,19 @@ def draw(fid: str, frame: int, n: int) -> np.ndarray:
     return img
 
 
-def sample(out: Path) -> None:
+def sample(
+    out: Path, p: PerceptionConfig | None = None, seed: int = 0, skip: Path | None = None
+) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    pl = pool(PerceptionConfig())
+    pl = pool(p or PerceptionConfig())
+    if skip is not None:
+        old = pd.read_csv(skip)[["fight_id", "frame"]]
+        pl = pl.merge(old, how="left", indicator=True)
+        pl = pl[pl["_merge"] == "left_only"].drop(columns="_merge")
     print(pl.groupby("kind").size().to_string())
     pick = (
-        pd.concat([g.sample(min(N_EACH, len(g)), random_state=0) for _, g in pl.groupby("kind")])
-        .sample(frac=1, random_state=0)
+        pd.concat([g.sample(min(N_EACH, len(g)), random_state=seed) for _, g in pl.groupby("kind")])
+        .sample(frac=1, random_state=seed)
         .reset_index(drop=True)
     )
     pick.insert(0, "n", range(1, len(pick) + 1))
@@ -119,5 +132,8 @@ def score(out: Path, verdicts: Path) -> None:
 if __name__ == "__main__":
     if sys.argv[1] == "sample":
         sample(Path(sys.argv[2]))
+    elif sys.argv[1] == "sample2":
+        sample(Path(sys.argv[2]), PerceptionConfig(fence_ky=2.0), seed=1,
+               skip=Path("data/fence_check/key.csv"))  # fmt: skip
     else:
         score(Path(sys.argv[2]), Path(sys.argv[3]))

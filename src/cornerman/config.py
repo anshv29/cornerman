@@ -142,6 +142,11 @@ class PerceptionConfig(BaseModel):
     fence_margin: float = Field(default=0.3, ge=0)
     """The pressuring fighter is at least this many body heights farther from the same
     edge, so they stand between the pressured fighter and the open mat."""
+    fence_ky: float = Field(default=1.0, ge=1.0)
+    """Vertical image distances are stretched by this before measuring fence distance
+    (perspective: the floor's depth is squashed in the image). 1 means no correction."""
+    fence_far: bool = True
+    """Whether the far fence (a shallow edge above the feet) can make a cage call."""
     fence_gap: tuple[float, float] = (0.35, 1.5)
     """Striking range for cage pressure: box centres this many body heights apart.
     Closer is clinch range (the rules' clinch gap), farther is out of range."""

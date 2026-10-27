@@ -6,7 +6,9 @@ times P(direction | family). Model: scikit-learn's HistGradientBoostingClassifie
 which is fast on CPU and takes missing values as they are (skeleton features are
 missing in every touching moment, red and blue ones outside live shots). Soft
 labels are used as sample weights: each moment appears once per pair state it may
-be in, weighted by that probability.
+be in, weighted by that probability. By default the weights are also class-balanced
+at the family level (`family_balance`): clinch is about 8% of the label mass and
+standing about 68%, and unbalanced the model never predicted clinch.
 
 No leakage: grouped 5-fold cross-validation by fight. For each fold, Dawid-Skene is
 refit on the training fights only, the classifier learns from them, and the held-out
@@ -93,7 +95,21 @@ def folds(fights: list[str], k: int, seed: int) -> list[list[str]]:
     return [order[i::k] for i in range(k)]
 
 
-def train(moments: pd.DataFrame, seed: int) -> tuple[Any, dict[str, object]]:
+def family_balance(soft: np.ndarray) -> np.ndarray:
+    """Per pair state, a weight that gives each family the same total training mass:
+    (1 / number of families) / that family's share of the soft-label mass. Directions
+    inside a family keep their relative mass."""
+    mass = soft.sum(0)
+    total = mass.sum()
+    out = np.ones(len(PAIR_STATES))
+    for f in FAMILIES:
+        idx = [PAIR_STATES.index(p) for p in PAIR_STATES if FAMILY[p] == f]
+        share = mass[idx].sum() / total if total > 0 else 0.0
+        out[idx] = (1 / len(FAMILIES)) / share if share > 0 else 1.0
+    return out
+
+
+def train(moments: pd.DataFrame, seed: int, balanced: bool = True) -> tuple[Any, dict[str, object]]:
     """Fit family Dawid-Skene and the classifier on these moments. Returns the model and
     a summary of the Dawid-Skene fit."""
     votes = family_votes(moments)
@@ -104,7 +120,8 @@ def train(moments: pd.DataFrame, seed: int) -> tuple[Any, dict[str, object]]:
     s = soft[keep]
     rows, cls = np.nonzero(s >= MIN_WEIGHT)
     model = HistGradientBoostingClassifier(max_iter=200, learning_rate=0.1, random_state=seed)
-    model.fit(x[rows], cls, sample_weight=s[rows, cls])  # pyright: ignore[reportUnknownMemberType]
+    w = s[rows, cls] * (family_balance(s)[cls] if balanced else 1.0)
+    model.fit(x[rows], cls, sample_weight=w)  # pyright: ignore[reportUnknownMemberType]
     summary: dict[str, object] = {
         "prior": dict(zip(FAMILIES, fam.prior.round(3).tolist(), strict=True)),
         "rules_confusion": fam.confusion[0].round(3).tolist(),
@@ -200,6 +217,7 @@ def cross_validate(
     seed: int = 0,
     stay: float = 0.9,
     max_gap_s: float = 1.0,
+    balanced: bool = True,
 ) -> tuple[pd.DataFrame, list[dict[str, object]]]:
     """Out-of-fold predictions for every moment: probabilities per pair state, the raw
     and smoothed pair state, its family, and the fold. Also each fold's Dawid-Skene
@@ -209,7 +227,7 @@ def cross_validate(
     summaries: list[dict[str, object]] = []
     for i, test in enumerate(folds(m["fight_id"].unique().tolist(), n_folds, seed)):
         is_test = m["fight_id"].isin(test)
-        model, summary = train(m[~is_test], seed)
+        model, summary = train(m[~is_test], seed, balanced)
         summaries.append({"fold": i, **summary})
         part = m[is_test].copy()
         probs = predict_proba(model, part)

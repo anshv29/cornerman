@@ -78,13 +78,35 @@ def per_state(truth: pd.Series, pred: pd.Series) -> pd.DataFrame:
     return pd.DataFrame(out).set_index("state").round(2)
 
 
+def balanced(truth: pd.Series, pred: pd.Series) -> tuple[float, float]:
+    """(balanced accuracy, macro-F1) over the classes present in `truth`: the mean of
+    per-class recall, and the mean of per-class F1. A classifier that always says the
+    majority class scores 1 / number of classes on balanced accuracy."""
+    recalls: list[float] = []
+    f1s: list[float] = []
+    for c in sorted(set(truth)):
+        tp = float(((truth == c) & (pred == c)).sum())
+        n_true, n_pred = float((truth == c).sum()), float((pred == c).sum())
+        rec = tp / n_true
+        prec = tp / n_pred if n_pred else 0.0
+        recalls.append(rec)
+        f1s.append(2 * prec * rec / (prec + rec) if prec + rec > 0 else 0.0)
+    return float(np.mean(recalls)), float(np.mean(f1s))
+
+
 def accuracy(df: pd.DataFrame, col: str) -> dict[str, float]:
     fam = df[col].map(FAMILY)
     clinch_t = df["truth_family"] == "clinch"
+    pair_bal, pair_f1 = balanced(df["truth"], df[col])
+    fam_bal, fam_f1 = balanced(df["truth_family"], fam)
     return {
         "moments": float(len(df)),
         "pair": float((df[col] == df["truth"]).mean()),
+        "pair_balanced": pair_bal,
+        "pair_macro_f1": pair_f1,
         "family": float((fam == df["truth_family"]).mean()),
+        "family_balanced": fam_bal,
+        "family_macro_f1": fam_f1,
         "clinch_merged_recall": float((fam[clinch_t] == "clinch").mean()) if clinch_t.any()
         else float("nan"),
         "clinch_split_recall": float((df.loc[clinch_t, col] == df.loc[clinch_t, "truth"]).mean())
@@ -135,7 +157,11 @@ def report(pred: pd.DataFrame, silver: pd.DataFrame) -> dict[str, object]:
         "silver_confusion": pd.crosstab(sil["truth"], sil["pred"]),
         "lower_tier_clips": int(low["clip_id"].nunique()),
         "lower_tier_family": {
-            c: float((low[c].map(FAMILY) == low["truth_family"]).mean())
+            c: {
+                "accuracy": float((low[c].map(FAMILY) == low["truth_family"]).mean()),
+                "balanced": balanced(low["truth_family"], low[c].map(FAMILY))[0],
+                "macro_f1": balanced(low["truth_family"], low[c].map(FAMILY))[1],
+            }
             for c in ("pred", "majority", "rules")
         },
         "rules_coverage_silver": float((sil["rules"] != "none").mean()),

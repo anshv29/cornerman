@@ -274,7 +274,8 @@ def fight_moments(fight_dir: Path, p: PerceptionConfig) -> pd.DataFrame:
             )
             lo, hi = p.fence_gap
             if rf is not None and bf is not None and not down and lo <= gap <= hi:
-                call = cage_call(rf, bf, body_h, edges, p.fence_near, p.fence_margin)
+                call = cage_call(rf, bf, body_h, edges, p.fence_near, p.fence_margin,
+                                 p.fence_ky, p.fence_far)  # fmt: skip
                 g_label = {
                     "neutral": "neutral",
                     "red-pressured": "blue-pressuring",
