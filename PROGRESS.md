@@ -2,8 +2,6 @@
 
 ## Needs Ansh
 
-0. **Step 5 report: three calls before actions (2026-10-27).** Details in DECISIONS.md ("Diagnosis of the first classifier run, and the final Step 2 to 5 numbers"). Silver, out of fold: family accuracy 0.83, balanced 0.81, macro-F1 0.75 (majority 0.71 / 0.33 / 0.28; rules alone 0.64 / 0.61 / 0.58); 8 pair states accuracy 0.74, balanced 0.56. (a) Balancing over-predicts clinch and ground (22% and 27% of live moments vs 8% and 24% in the labels). Recommended: keep balanced training, and correct probabilities back to the label prior before anything per fighter uses them. (b) Clinch controller is weak (silver clinch split recall 0.33) and rests on an unconfirmed VLM answer. Recommended: report clinch merged only for now. (c) Ground direction leans red in live shots (red-top 10% vs blue-top 6%), cause not found. Recommended: find the cause before Step 6. Step 6 (actions) waits for these.
-
 1. **A free DVC remote (not blocking).** Ansh said on 2026-10-17 this can wait. Recommended: DagsHub (free, no card). Sign up at https://dagshub.com with GitHub, connect the `anshv29/cornerman` repo, then share the DVC remote URL and an access token with the agent, for example by putting the token in a gitignored `.env` file. Until then the DVC cache lives only on this laptop.
 
 ## Kaggle setup (done 2026-10-17)
@@ -17,6 +15,12 @@ $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs
 Free Kaggle GPU used so far: about 38.1 hours in total (2026-10-26 and 27: masks batches 1 to 3, about 2.6 h; arena batches 2 and 3 on CPU sessions, about 14.4 h, no GPU quota) (2026-10-26: about 0.3 h for the tangled-pose test, 0.2 h for the masks smoke run). Kaggle CPU sessions (no GPU quota) run the arena stage. On 2026-10-19 and 10-20: about 3.5 h for the last 24 fights, about 1.7 h of VLM pilots, 0.6 h for a failed full run (out of memory), 3.5 h for the full VLM run. On 2026-10-25: 8.7 h for the 1,000-clip VLM run and 3.4 h for the clinch swap run.
 
 ## Done
+
+### Step 5 calls and the red-top cause (2026-11-14)
+- Ansh's calls: (a) balanced training kept, probabilities corrected to the family rates over all fighting v2 time (`q_*` columns); (b) clinch reported without the controller; (c) red-top cause found before Step 6.
+- Cause: the direction Viterbi decided near-ties. The labellers lean slightly blue and the model's probabilities are even; 67% of top calls had neither fighter above 0.7 by forward-backward, and those leaned red 2 to 1. Both of Ansh's suspects checked and ruled out (prompt: VLM ground labels lean blue; pooled kit colour: same lean in fights with red confirmed by eye; merged boxes: blind check, box follows the top fighter for both colours, 7 of 10 and 10 of 14).
+- Fix: `direction_known` where the marginal reaches 0.8. Known top calls 55% red (fight interval 41 to 69%); silver ground directions known 50 of 50 right. Cost: 21% of live ground moments get a direction. Corrected family shares 0.585 / 0.086 / 0.329 against label rates 0.595 / 0.083 / 0.322.
+- Property test for colour symmetry; DECISIONS.md 2026-11-14, LEARNING.md section 26.
 
 ### Phase 3, Steps 1 to 5 (finished 2026-10-27)
 - All 53 fights have arena output, fighting v2 and masks (arena batch 3 imported; masks batch 3 run after one failed upload). Nothing left on Kaggle but kernels; no datasets.
@@ -102,6 +106,8 @@ Free Kaggle GPU used so far: about 38.1 hours in total (2026-10-26 and 27: masks
 
 ## Shaky or worth a second look
 - **Top perception issue for Phase 3: clinch box-merging.** In clinches, against the fence and on the ground, the detector often draws one box around both fighters, so both fighters are boxed in only 67 to 69% of live frames on the pilot. Everything downstream (identity, pose, state) inherits it. First thing to try: the RF-DETR segmentation variant (Apache 2.0, same family as our detector), whose per-person masks separate tangled bodies better than boxes. Measure it against the Phase 2 gold set, split by state (standing, clinch, ground).
+- **Identity colour features aren't symmetric** (found 2026-11-14). The red pixel test is looser than the blue one, hue bin 0 holds both red kit and skin, and bright blue is left out of the hue histogram. Red takes 62% of fighter crops (72% of merged ones). The red-top check found no effect on the single boxes that matter there, but this is a candidate for the Fable pass.
+- **Ground direction is known on only 21% of live ground moments** after the red-top fix. Per-fighter top/bottom numbers will be thin; use the `q_*` probabilities, not hard calls.
 - **Identity is good enough to start, not solved.** 75% of held-out fights right; the failures are ground mixing and the other fighter leaking into a corner through clinches. The confidence score ranks fights well but its threshold is soft (Needs Ansh, item 1). Clinch box-merging (above) is the shared root cause.
 - **Clip strata are a rough proxy.** "ground" leans on torso angle and wide boxes and "merged" also catches close-ups of one fighter. They only spread the sample.
 - **The silver set leans easy.** The rules need both fighters boxed separately, so tangled clinches and pins rarely become silver. Numbers measured on it must say "silver" and be split by stratum.
@@ -119,9 +125,8 @@ Free Kaggle GPU used so far: about 38.1 hours in total (2026-10-26 and 27: masks
 - The first `pre-commit` run on a new machine downloads Go to build gitleaks, which takes a minute or two.
 
 ## Next
-1. Ansh's calls on the Step 5 report (Needs Ansh item 0).
-2. Then Steps 6 and 7 of the Phase 3 plan: action detector (rules first, one VLM action job on free quota), then labeller C and the events tables.
-3. MLflow before the first real model fit (Phase 4).
+1. Steps 6 and 7 of the Phase 3 plan: action detector (rules first, one VLM action job on free quota), then labeller C and the events tables.
+2. MLflow before the first real model fit (Phase 4).
 
 **For the next GPU batch:** ft_2b1a88cfe9 is back in `fights.csv` (IMMAF's results put it in the adult 2019 European Middleweight bracket; its "junior" hit was the event banner). Not processed yet. Ansh: process it with the next batch, not on its own. `select_fights` picks it up automatically.
 

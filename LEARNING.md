@@ -568,7 +568,7 @@ What the anchored fit says: when R says ground, it is ground about 75% of the ti
 
 **How it is measured.** Silver clips give the truth for the moments inside them. Reported with baselines (majority class, the rules alone), per state, per clip stratum, and on the lower tier where the rules abstained. Silver needs the rules to agree with the VLM, so it leans to easy clips; the lower tier is the harder test, and there family accuracy is 0.56 (majority 0.44, rules 0.34). Label-free rates (impossible transitions, incompatible pairs) are reported for all moments, since they need no labels.
 
-**What breaks it.** Labels are only as good as the VLM anchor. Clinch direction rests on a VLM controller that nobody has confirmed by eye, and the model gets it wrong often. Ground direction leans to red in live shots for a reason not yet found. Outside live shots there is no red and blue at all, so only the family can be used there.
+**What breaks it.** Labels are only as good as the VLM anchor. Clinch direction rests on a VLM controller that nobody has confirmed by eye, and the model gets it wrong often. Ground direction leaned to red in live shots; section 26 explains why (decisions on near-ties) and the fix. Outside live shots there is no red and blue at all, so only the family can be used there.
 
 **Interview questions.**
 1. *Why did accuracy look fine when the model was useless for clinch?* With 70% standing, always saying standing scores 70%. Accuracy rewards the majority class; balanced accuracy and macro-F1 weigh every class equally, so they expose it.
