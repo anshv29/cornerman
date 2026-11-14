@@ -24,7 +24,9 @@ import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
-KAGGLE_CLI = ("uvx", "--from", "kaggle==2.2.4", "kaggle")
+KAGGLE_CLI = ("uvx", "--from", "kaggle==2.2.4", "--with", "six==1.17.0", "kaggle")
+"""six is named because kaggle 2.2.4 imports it without listing it; since 2026-11 uvx's
+fresh environment no longer pulls it in through another package."""
 KERNEL_METADATA = "kernel-metadata.json"
 BUILD_MARK = "# BUILD:"
 _PUBLIC_FLAGS = frozenset({"-u", "--public"})
