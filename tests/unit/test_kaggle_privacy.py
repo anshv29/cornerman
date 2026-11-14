@@ -198,11 +198,13 @@ def test_dataset_upload_survives_unreadable_reply_but_not_other_errors(tmp_path:
 
         return runner, calls
 
-    runner, calls = runner_with("Expecting value: line 1 column 1 (char 0)")
-    upload_dataset(tmp_path, "me/videos", runner, probe=lambda url: 403)
-    assert calls[-1][:2] == ["datasets", "status"]  # still waited for ready
-    with pytest.raises(PrivacyError):  # and still checked privacy
-        upload_dataset(tmp_path, "me/videos", runner, probe=lambda url: 200)
+    for reply in ("Expecting value: line 1 column 1 (char 0)",
+                  "499 Client Error: unknown for url: https://api.kaggle.com/v1/..."):  # fmt: skip
+        runner, calls = runner_with(reply)
+        upload_dataset(tmp_path, "me/videos", runner, probe=lambda url: 403)
+        assert calls[-1][:2] == ["datasets", "status"]  # still waited for ready
+        with pytest.raises(PrivacyError):  # and still checked privacy
+            upload_dataset(tmp_path, "me/videos", runner, probe=lambda url: 200)
 
     runner, _ = runner_with("401 Unauthorized")
     with pytest.raises(KaggleError):

@@ -247,9 +247,10 @@ def upload_dataset(
     try:
         kaggle(args, runner)
     except KaggleError as e:
-        # The CLI sometimes uploads everything and then can't parse Kaggle's reply.
+        # The CLI sometimes uploads everything and then can't parse Kaggle's reply, or gets
+        # a 499 for it (2026-11-14: twice, with the full 404 MB dataset there afterwards).
         # The ready and privacy checks below still run; anything else is a real failure.
-        if "Expecting value" not in str(e):
+        if "Expecting value" not in str(e) and "499 Client Error" not in str(e):
             raise
         print(f"kaggle {args[1]}: reply not readable, checking the dataset instead")
     deadline = time.monotonic() + wait_s
