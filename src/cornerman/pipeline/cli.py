@@ -176,6 +176,9 @@ def main(argv: list[str] | None = None) -> int:
     p_vpush.add_argument("--prompts", default="", help="comma list; default every prompt")
     p_vpush.add_argument("--strata", default="", help="comma list, e.g. close,merged; default all")
     p_vpush.add_argument(
+        "--max-new-tokens", type=int, default=0, help="answer length cap; 0 = the model's default"
+    )
+    p_vpush.add_argument(
         "--hours", type=float, default=11.0, help="start no new clip after this (session cap 12)"
     )
     vlm.add_parser("import", help="pull the labels and delete the clips dataset")
@@ -623,6 +626,8 @@ def _gold_vlm(args: argparse.Namespace) -> int:
         models = [
             {**m, "prompts": [p.strip() for p in str(args.prompts).split(",")]} for m in models
         ]
+    if args.max_new_tokens:
+        models = [{**m, "max_new_tokens": int(args.max_new_tokens)} for m in models]
     if "rank" in clips:  # work through the strata evenly, so a partial run is balanced
         clips = clips.sort_values(["rank", "stratum"])
     paths = [args.clip_dir / f"{c}.mp4" for c in clips["clip_id"]]

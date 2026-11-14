@@ -14,12 +14,14 @@ from typing import Any
 import cv2
 import numpy as np
 
-from cornerman.gold.vlm import PROMPTS, parse_direct, parse_questions, prompt
+from cornerman.gold.vlm import PROMPTS, parse_actions, parse_direct, parse_questions, prompt
 
 PARSERS = {
     "direct": parse_direct,
     "questions": parse_questions,
     "questions_swapped": parse_questions,
+    "actions": parse_actions,
+    "actions_swapped": parse_actions,
 }
 
 

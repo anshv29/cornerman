@@ -69,3 +69,32 @@ def test_swapped_prompt_only_changes_the_order_of_the_corners() -> None:
     assert "blue / red / even" in sw
     # The answer keys don't change, so the same parser reads both.
     assert sw.split("Answer with JSON only")[1] == q.split("Answer with JSON only")[1]
+
+
+def _actions(**kw: str) -> str:
+    from cornerman.gold.vlm import ACTION_KEYS
+
+    base = {"live": "yes"} | {f"{c}_{k}": "no" for c in ("red", "blue") for k in ACTION_KEYS}
+    base |= {"red_strikes": "0", "blue_strikes": "0"}
+    base.update(kw)
+    return "```json\n" + str(base).replace("'", '"') + "\n```"
+
+
+def test_parse_actions() -> None:
+    from cornerman.gold.vlm import actions_of, parse_actions
+
+    got = parse_actions(_actions(red_strikes="3+", red_takedown="yes", blue_strikes="1"))
+    assert got == {"live": "yes", "red": "strikes=3;takedown", "blue": "strikes=1"}
+    assert actions_of("strikes=3;takedown")["takedown"] == 1
+    assert actions_of("strikes=1")["strikes"] == 1 and actions_of(None)["sweep"] == 0
+    assert parse_actions(_actions(red_strikes="7"))["red"] == "strikes=3"  # pyright: ignore[reportOptionalSubscript]
+    assert parse_actions(_actions(blue_sweep="maybe")) is None
+    assert parse_actions(_actions(live="no")) == {"live": "no", "red": None, "blue": None}
+
+
+def test_actions_swapped_names_blue_first() -> None:
+    from cornerman.gold.vlm import PROMPTS
+
+    a, b = PROMPTS["actions"], PROMPTS["actions_swapped"]
+    assert a.index("RED box") < a.index("BLUE box") and b.index("BLUE box") < b.index("RED box")
+    assert b.index('"blue_strikes"') < b.index('"red_strikes"')

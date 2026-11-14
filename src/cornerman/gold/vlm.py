@@ -197,3 +197,92 @@ def parse_questions(text: str) -> Labels | None:
     else:
         return None
     return _pair(s.get("red"), s.get("blue"))
+
+
+# Actions (Phase 3, Step 6). One question per action of the taxonomy, asked about
+# each boxed fighter, with flat JSON keys (extract_json reads flat objects only).
+# Strikes are counted; the rest are yes / no. "actions_swapped" names blue first
+# everywhere, including the order of the keys, since the clinch questions showed the
+# model leans to the fighter named first.
+ACTION_QUESTIONS: dict[str, str] = {
+    "strikes": "how many punches, kicks, knees or elbows does this fighter throw, "
+    "landed or not? 0 / 1 / 2 / 3+",
+    "takedown": "does this fighter shoot for or attempt a takedown (driving in to take "
+    "the opponent down, a trip or a throw), whether it works or not? yes / no",
+    "clinch": "does this fighter start a clinch (grabbing the opponent's head, neck or "
+    "body from open space) or break out of one? yes / no",
+    "pass": "on the ground and on top, does this fighter pass the guard or move to a "
+    "better position (side control, mount, the back)? yes / no",
+    "submission": "does this fighter attempt a submission (a choke or a joint lock)? yes / no",
+    "sweep": "on the ground and underneath, does this fighter sweep or reverse the "
+    "opponent and end up on top? yes / no",
+    "stand_up": "does this fighter get back up to the feet from the ground? yes / no",
+    "reset": "does this fighter move away or circle out to get off the fence or back "
+    "to open space? yes / no",
+}
+ACTION_KEYS = tuple(ACTION_QUESTIONS)
+
+
+def _action_prompt(first: Corner) -> str:
+    second = _other(first)
+    clip = _CLIP if first == "red" else swap_colours(_CLIP)
+    lines = [
+        clip,
+        "\n\nFirst: is this live fighting between the two boxed fighters? (no for "
+        "walk-outs, introductions, close-ups of one person, replays, the referee "
+        "stopping the fight, after the fight) yes / no",
+        f"\nThen answer these questions for the {first.upper()} fighter and for the "
+        f"{second.upper()} fighter, about what each does during the clip:",
+    ]
+    lines += [f"- {k}: {q}" for k, q in ACTION_QUESTIONS.items()]
+    keys = ", ".join(f'"{c}_{k}": "..."' for c in (first, second) for k in ACTION_KEYS)
+    lines.append('\nAnswer with JSON only, in this form:\n{"live": "...", ' + keys + "}")
+    return "\n".join(lines)
+
+
+PROMPTS["actions"] = _action_prompt("red")
+PROMPTS["actions_swapped"] = _action_prompt("blue")
+
+
+def _yes(value: str | None) -> bool | None:
+    return {"yes": True, "no": False}.get(value or "")
+
+
+def _strikes(value: str | None) -> int | None:
+    m = re.fullmatch(r"\s*(\d+)\s*\+?\s*", value or "")
+    return min(int(m.group(1)), 3) if m else None
+
+
+def parse_actions(text: str) -> Labels | None:
+    """Labels from an actions answer: per corner, the actions it took as a string like
+    "strikes=2;takedown;clinch" (strikes capped at 3, "3" meaning 3 or more), or None
+    if the answer can't be read in full. Every key must be answered for both corners,
+    since a half answer can't tell "no" from "not asked"."""
+    a = extract_json(text)
+    if a is None:
+        return None
+    if a.get("live") == "no":
+        return dict(_NOT_LIVE)
+    if a.get("live") != "yes":
+        return None
+    out: Labels = {"live": "yes"}
+    for c in ("red", "blue"):
+        n = _strikes(a.get(f"{c}_strikes"))
+        flags = [_yes(a.get(f"{c}_{k}")) for k in ACTION_KEYS[1:]]
+        if n is None or any(f is None for f in flags):
+            return None
+        done = [k for k, f in zip(ACTION_KEYS[1:], flags, strict=True) if f]
+        out[c] = ";".join([f"strikes={n}", *done])
+    return out
+
+
+def actions_of(value: str | None) -> dict[str, int]:
+    """The inverse of parse_actions for one corner: {"strikes": n, "takedown": 1, ...}
+    with every action key present (0 where not taken)."""
+    out = dict.fromkeys(ACTION_KEYS, 0)
+    for part in (value or "").split(";"):
+        if part.startswith("strikes="):
+            out["strikes"] = int(part.split("=")[1])
+        elif part in out:
+            out[part] = 1
+    return out
