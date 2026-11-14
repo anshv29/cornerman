@@ -61,6 +61,9 @@ EVENT_SCHEMA = pa.DataFrameSchema(
         "landed": pa.Column("boolean", nullable=True),
         "confidence": pa.Column(float, pa.Check.in_range(0, 1)),  # pyright: ignore[reportUnknownMemberType]
         "source": pa.Column(str, pa.Check.isin(SOURCES)),  # pyright: ignore[reportUnknownMemberType]
+        # Optional: false where the state's direction (who controls, who is on top, who
+        # presses) is a guess, so only its family can be used (events/table.py).
+        "direction_known": pa.Column(bool, required=False),
     },
     checks=[
         pa.Check(_one_fight, error="one fight per table"),

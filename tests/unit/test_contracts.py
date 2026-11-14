@@ -125,3 +125,10 @@ def test_usable_frames_keep_clean_shots_of_flagged_fights(tmp_path: Path) -> Non
     v2.mkdir()
     fighting.assign(live=lambda d: d["frame"] >= 20).to_parquet(v2 / "fighting.parquet")
     assert usable_frames(tmp_path, hold)["ft_good"] == set(range(20, 90, 5))
+
+
+def test_direction_known_is_optional_but_must_be_bool() -> None:
+    df = good_events().assign(direction_known=[True, True, False, False])
+    validate_events(df)
+    with pytest.raises(QuarantineError):
+        validate_events(df.assign(direction_known=["yes"] * 4))
