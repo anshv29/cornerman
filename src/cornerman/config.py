@@ -152,6 +152,25 @@ class PerceptionConfig(BaseModel):
     fence_gap: tuple[float, float] = (0.35, 1.5)
     """Striking range for cage pressure: box centres this many body heights apart.
     Closer is clinch range (the rules' clinch gap), farther is out of range."""
+    strike_hand_speed: float = Field(default=2.0, gt=0)
+    """A punch: the wrist moves toward the opponent, relative to the fighter's own
+    shoulders, at least this many body heights per second between two pose frames. A
+    jab covers about 0.4 body heights in 0.15 s (about 2.7 per second); guard and head
+    movement stay well under 1. Set by reasoning before looking at data
+    (perception/strikes.py)."""
+    strike_foot_speed: float = Field(default=3.0, gt=0)
+    """A kick: the ankle moves at least this fast relative to the hips, and ends lifted
+    (strike_foot_lift). Legs swing farther than arms, so the bar is higher."""
+    strike_foot_lift: float = Field(default=0.25, ge=0)
+    """The kicking ankle ends at least this many body heights above the other ankle."""
+    strike_max_speed: float = Field(default=8.0, gt=0)
+    """Faster than this is a keypoint jumping (left and right swapped, a lost limb), not
+    a limb."""
+    strike_range: float = Field(default=1.5, gt=0)
+    """Box centres at most this many body heights apart (the cage-pressure striking range)."""
+    strike_refractory_s: float = Field(default=0.3, gt=0)
+    """One fighter's strikes closer together than this count once (punches in a combination
+    land about 0.25 to 0.4 s apart)."""
     identity_segment_min_s: float = Field(default=3.0, ge=0)
     """Shots with less fighting time than this are never usable on their own in a flagged
     fight: too few crops to judge (identity_segments)."""
