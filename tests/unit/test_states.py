@@ -1,7 +1,15 @@
 import numpy as np
 import pandas as pd
 
-from cornerman.events.states import folds, smooth, transitions, viterbi
+from cornerman.events.states import (
+    family_mass,
+    folds,
+    marginals,
+    prior_correct,
+    smooth,
+    transitions,
+    viterbi,
+)
 from cornerman.weak_labels.labellers import PAIR_STATES
 
 
@@ -34,7 +42,7 @@ def test_smooth_picks_the_family_first() -> None:
     p[:, PAIR_STATES.index("red-clinch")] = 0.3
     p[:, PAIR_STATES.index("blue-clinch")] = 0.3
     m = pd.DataFrame({"fight_id": ["a"] * 4, "t": [0.0, 0.5, 1.0, 1.5]})
-    path: list[str] = [PAIR_STATES[int(i)] for i in smooth(m, p, 0.9, 1.0)]
+    path: list[str] = [PAIR_STATES[int(i)] for i in smooth(m, p, 0.9, 1.0)[0]]
     assert set(path) <= {"red-clinch", "blue-clinch"}
 
 
@@ -58,3 +66,41 @@ def test_balanced_accuracy_of_always_majority() -> None:
     truth = pd.Series(["a"] * 8 + ["b", "c"])
     bal, f1 = balanced(truth, pd.Series(["a"] * 10))
     assert np.isclose(bal, 1 / 3) and f1 < 0.33
+
+
+def test_marginals_of_a_sure_run_follow_the_evidence() -> None:
+    p = np.array([[0.9, 0.1]] * 5)
+    m = marginals(p, transitions(2, 0.9))
+    assert np.allclose(m.sum(1), 1) and (m[:, 0] > 0.9).all()
+
+
+def test_smooth_reports_how_sure_the_direction_is() -> None:
+    """Ground with no evidence on who is on top: the direction can't be sure."""
+    k = len(PAIR_STATES)
+    p = np.zeros((6, k))
+    for s in ("red-top", "blue-top", "scramble"):
+        p[:, PAIR_STATES.index(s)] = 1 / 3
+    m = pd.DataFrame({"fight_id": ["a"] * 6, "t": np.arange(6) * 0.5})
+    _, sure = smooth(m, p, 0.9, 1.0)
+    assert (sure < 0.5).all()
+    p[:, PAIR_STATES.index("red-top")] = 0.9
+    path, sure = smooth(m, p, 0.9, 1.0)
+    assert {PAIR_STATES[int(i)] for i in path} == {"red-top"} and (sure > 0.9).all()
+
+
+def test_prior_correct_moves_family_mass_and_keeps_directions() -> None:
+    p = np.full((1, len(PAIR_STATES)), 1 / len(PAIR_STATES))
+    trained = np.array([1 / 3, 1 / 3, 1 / 3])
+    q = prior_correct(p, trained, trained)
+    assert np.allclose(q, p)
+    rates = np.array([0.7, 0.1, 0.2])
+    q = prior_correct(p, trained, rates)
+    idx = {s: PAIR_STATES.index(s) for s in PAIR_STATES}
+    assert np.isclose(q.sum(), 1)
+    assert np.isclose(q[0, idx["red-top"]], q[0, idx["blue-top"]])
+    assert q[0, idx["neutral"]] > p[0, idx["neutral"]] > q[0, idx["red-clinch"]]
+
+
+def test_family_mass_sums_weights_per_family() -> None:
+    cls = np.array([PAIR_STATES.index(s) for s in ("neutral", "red-clinch", "blue-top")])
+    assert np.allclose(family_mass(np.array([2.0, 1.0, 1.0]), cls), [0.5, 0.25, 0.25])

@@ -30,6 +30,20 @@ blue-top can't swap directly: a reversal passes through a scramble.
 
 Outside live shots red and blue are unknown, so there the direction of a prediction
 means nothing and only its family is used (column `family_only`).
+
+A direction is only reported where the model is sure of it (column
+`direction_known`): the forward-backward marginal of the Viterbi state, within its
+family run, must reach DIRECTION_MIN. Without this, Viterbi turned near-ties into
+long runs of one colour: 67% of ground top calls sat on moments where neither
+fighter reached 0.7, and those leaned red 2 to 1 while the confident ones were even
+(DECISIONS.md, 2026-11-14). Clinch direction is never reported for now (Ansh,
+2026-11-14): the controller rests on one unconfirmed VLM answer.
+
+Balanced training makes the probabilities say clinch and ground too often. Anything
+per fighter uses `q_*` instead of `p_*`: the family probabilities moved from the
+training mix back to the family rates over all fighting time of the training fights
+(`prior_correct`), with directions keeping their relative mass. The decision `pred`
+stays on the balanced probabilities, which find clinch.
 """
 
 from typing import Any
@@ -68,6 +82,13 @@ WINDOW = [
 """Features also averaged over +-1 s (the moment and two either side, at 0.5 s)."""
 MIN_WEIGHT = 0.02
 """Soft-label entries below this are dropped from training (they only add rows)."""
+DIRECTION_MIN = 0.8
+"""A direction is reported only where its forward-backward marginal reaches this. Set by
+reasoning before any check: the measured trust in the directional labellers runs from
+0.7 to 0.95, so a call below 0.8 is no better than one weak vote."""
+NO_DIRECTION = ("clinch",)
+"""Families whose direction is never reported (Ansh, 2026-11-14: clinch without the
+controller for now)."""
 
 
 def with_window(moments: pd.DataFrame, half: int = 2) -> pd.DataFrame:
@@ -109,9 +130,32 @@ def family_balance(soft: np.ndarray) -> np.ndarray:
     return out
 
 
+def family_mass(weights: np.ndarray, classes: np.ndarray) -> np.ndarray:
+    """Share of the total weight in each family, for training rows of pair-state `classes`."""
+    fam = np.array([FAMILIES.index(FAMILY[PAIR_STATES[int(c)]]) for c in classes], int)
+    mass = np.bincount(fam, weights=weights, minlength=len(FAMILIES))
+    return mass / mass.sum()
+
+
+def prior_correct(probs: np.ndarray, trained: np.ndarray, rates: np.ndarray) -> np.ndarray:
+    """(n, 8) probabilities moved from the family mix the model was trained on (`trained`)
+    to the family rates of the data (`rates`): each family's states are scaled by
+    rates / trained, then each row is renormalised. Directions inside a family keep
+    their relative mass. This is the usual prior-shift correction: the classifier
+    estimates P(family | x) under the training prior, and Bayes' rule swaps the prior."""
+    scale = np.ones(len(PAIR_STATES))
+    for k, p in enumerate(PAIR_STATES):
+        f = FAMILIES.index(FAMILY[p])
+        scale[k] = rates[f] / trained[f] if trained[f] > 0 else 0.0
+    out = probs * scale
+    return out / np.clip(out.sum(1, keepdims=True), 1e-12, None)
+
+
 def train(moments: pd.DataFrame, seed: int, balanced: bool = True) -> tuple[Any, dict[str, object]]:
     """Fit family Dawid-Skene and the classifier on these moments. Returns the model and
-    a summary of the Dawid-Skene fit."""
+    a summary: the Dawid-Skene fit, the family mix the model was trained on ("trained")
+    and the family rates over all of these moments ("rates", the mean family
+    posterior, which is the Dawid-Skene prior where nobody voted)."""
     votes = family_votes(moments)
     fam = fit_family(votes)
     soft = soft_labels(moments, fam.posterior)
@@ -127,6 +171,8 @@ def train(moments: pd.DataFrame, seed: int, balanced: bool = True) -> tuple[Any,
         "rules_confusion": fam.confusion[0].round(3).tolist(),
         "vlm_confusion": fam.confusion[1].round(3).tolist(),
         "n_voted": int(keep.sum()),
+        "trained": family_mass(w, cls).tolist(),
+        "rates": fam.posterior.mean(0).tolist(),
     }
     return model, summary
 
@@ -172,6 +218,27 @@ def viterbi(probs: np.ndarray, trans: np.ndarray) -> np.ndarray:
     return path
 
 
+def marginals(probs: np.ndarray, trans: np.ndarray) -> np.ndarray:
+    """(n, k) posterior P(state at step i | all steps) by forward-backward, with the
+    same uniform start as `viterbi`. Each step is rescaled to sum to 1 (only ratios
+    matter), so long runs don't underflow."""
+    n, k = probs.shape
+    if n == 0:
+        return np.zeros((0, k))
+    e = np.clip(probs, 1e-12, None)
+    fwd = np.zeros((n, k))
+    bwd = np.ones((n, k))
+    fwd[0] = e[0] / e[0].sum()
+    for i in range(1, n):
+        f = (fwd[i - 1] @ trans) * e[i]
+        fwd[i] = f / f.sum()
+    for i in range(n - 2, -1, -1):
+        b = trans @ (e[i + 1] * bwd[i + 1])
+        bwd[i] = b / b.sum()
+    post = fwd * bwd
+    return post / post.sum(1, keepdims=True)
+
+
 def _runs(moments: pd.DataFrame, max_gap_s: float) -> list[tuple[int, int]]:
     """(start, end) of each run of moments: same fight, at most `max_gap_s` apart."""
     fight = moments["fight_id"].to_numpy()
@@ -185,13 +252,18 @@ def _runs(moments: pd.DataFrame, max_gap_s: float) -> list[tuple[int, int]]:
     return out
 
 
-def smooth(moments: pd.DataFrame, probs: np.ndarray, stay: float, max_gap_s: float) -> np.ndarray:
+def smooth(
+    moments: pd.DataFrame, probs: np.ndarray, stay: float, max_gap_s: float
+) -> tuple[np.ndarray, np.ndarray]:
     """Pair state index per moment: family by Viterbi, then direction by Viterbi within
-    each run of one family. `moments` must be sorted by fight and time."""
+    each run of one family. Also how sure the direction is: the forward-backward
+    marginal of the chosen state within its family run (1 for a family with one state).
+    `moments` must be sorted by fight and time."""
     members = [[PAIR_STATES.index(p) for p in PAIR_STATES if FAMILY[p] == f] for f in FAMILIES]
     fam_probs = np.stack([probs[:, idx].sum(1) for idx in members], axis=1)
     fam_trans = transitions(len(FAMILIES), stay)
     out = np.zeros(len(moments), int)
+    sure = np.ones(len(moments))
     for a, b in _runs(moments, max_gap_s):
         fam = viterbi(fam_probs[a:b], fam_trans)
         i = a
@@ -206,9 +278,12 @@ def smooth(moments: pd.DataFrame, probs: np.ndarray, stay: float, max_gap_s: flo
             )
             sub = probs[i:j][:, idx]
             sub = sub / np.clip(sub.sum(1, keepdims=True), 1e-12, None)
-            out[i:j] = np.asarray(idx)[viterbi(sub, transitions(len(idx), stay, forbid))]
+            trans = transitions(len(idx), stay, forbid)
+            path = viterbi(sub, trans)
+            out[i:j] = np.asarray(idx)[path]
+            sure[i:j] = marginals(sub, trans)[np.arange(j - i), path]
             i = j
-    return out
+    return out, sure
 
 
 def cross_validate(
@@ -219,9 +294,10 @@ def cross_validate(
     max_gap_s: float = 1.0,
     balanced: bool = True,
 ) -> tuple[pd.DataFrame, list[dict[str, object]]]:
-    """Out-of-fold predictions for every moment: probabilities per pair state, the raw
-    and smoothed pair state, its family, and the fold. Also each fold's Dawid-Skene
-    summary."""
+    """Out-of-fold predictions for every moment: probabilities per pair state (`p_*` as
+    trained, `q_*` corrected to the family rates), the raw and smoothed pair state, its
+    family, how sure the direction is and whether it counts as known, and the fold.
+    Also each fold's training summary."""
     m = with_window(moments)
     pieces: list[pd.DataFrame] = []
     summaries: list[dict[str, object]] = []
@@ -231,15 +307,25 @@ def cross_validate(
         summaries.append({"fold": i, **summary})
         part = m[is_test].copy()
         probs = predict_proba(model, part)
+        corrected = prior_correct(probs, np.asarray(summary["trained"]),
+                                  np.asarray(summary["rates"]))  # fmt: skip
         for k, pair in enumerate(PAIR_STATES):
             part[f"p_{pair}"] = probs[:, k]
+            part[f"q_{pair}"] = corrected[:, k]
         members = [[PAIR_STATES.index(p) for p in PAIR_STATES if FAMILY[p] == f] for f in FAMILIES]
         fam_p = np.stack([probs[:, idx].sum(1) for idx in members], axis=1)
         part["raw_family"] = np.array(FAMILIES)[fam_p.argmax(1)]
-        part["pred"] = np.array(PAIR_STATES)[smooth(part, probs, stay, max_gap_s)]
+        path, sure = smooth(part, probs, stay, max_gap_s)
+        part["pred"] = np.array(PAIR_STATES)[path]
+        part["direction_sure"] = sure
         part["fold"] = i
         pieces.append(part)
     out = pd.concat(pieces).sort_values(["fight_id", "t"]).reset_index(drop=True)
     out["pred_family"] = out["pred"].map(FAMILY)
     out["family_only"] = ~out["live"].astype(bool)
+    out["direction_known"] = (
+        ~out["family_only"]
+        & ~out["pred_family"].isin(NO_DIRECTION)
+        & (out["direction_sure"] >= DIRECTION_MIN)
+    )
     return out, summaries
