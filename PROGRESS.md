@@ -16,6 +16,13 @@ Free Kaggle GPU used so far: about 38.1 hours in total (2026-10-26 and 27: masks
 
 ## Done
 
+### Steps 6 and 7 started: actions, strikes, event tables (2026-11-14)
+- Actions from changes of the smoothed state (`events/actions.py`): 899 on the 53 fights, 178 with an actor. Takedown blind check (agent-judged, thumbnails before and after): 4 of 17 judged rule takedowns show the fight going down, 7 were already on the ground, 6 never went down. Controls: 14 of 17 standing in both. The rule follows the state classifier's errors, so positional actions are not to be counted per fighter yet.
+- Strikes thrown from limb speed (`perception/strikes.py`), apart and at range only: 822 in 68.6 minutes. Blind check round 1: 9 of 17 judged detections right, 14 of 19 non-detections right. Not retuned.
+- VLM actions prompt (counts of strikes, seven yes/no actions, a blue-first copy). Pilot of 20 clips running on free Kaggle quota.
+- Event tables (`events/table.py`, `cornerman events`): 49 fights, 83 fighters, 207 minutes, direction known on 40% of rows.
+- DECISIONS.md entries and LEARNING.md section 27.
+
 ### Step 5 calls and the red-top cause (2026-11-14)
 - Ansh's calls: (a) balanced training kept, probabilities corrected to the family rates over all fighting v2 time (`q_*` columns); (b) clinch reported without the controller; (c) red-top cause found before Step 6.
 - Cause: the direction Viterbi decided near-ties. The labellers lean slightly blue and the model's probabilities are even; 67% of top calls had neither fighter above 0.7 by forward-backward, and those leaned red 2 to 1. Both of Ansh's suspects checked and ruled out (prompt: VLM ground labels lean blue; pooled kit colour: same lean in fights with red confirmed by eye; merged boxes: blind check, box follows the top fighter for both colours, 7 of 10 and 10 of 14).
@@ -107,6 +114,7 @@ Free Kaggle GPU used so far: about 38.1 hours in total (2026-10-26 and 27: masks
 ## Shaky or worth a second look
 - **Top perception issue for Phase 3: clinch box-merging.** In clinches, against the fence and on the ground, the detector often draws one box around both fighters, so both fighters are boxed in only 67 to 69% of live frames on the pilot. Everything downstream (identity, pose, state) inherits it. First thing to try: the RF-DETR segmentation variant (Apache 2.0, same family as our detector), whose per-person masks separate tangled bodies better than boxes. Measure it against the Phase 2 gold set, split by state (standing, clinch, ground).
 - **Identity colour features aren't symmetric** (found 2026-11-14). The red pixel test is looser than the blue one, hue bin 0 holds both red kit and skin, and bright blue is left out of the hue histogram. Red takes 62% of fighter crops (72% of merged ones). The red-top check found no effect on the single boxes that matter there, but this is a candidate for the Fable pass.
+- **Rule takedowns are mostly wrong** (1 in 4 in the blind check): the state classifier starts ground runs late or calls standing at the fence as ground. The actions table keeps them; the event tables should not count them per fighter until backed.
 - **Ground direction is known on only 21% of live ground moments** after the red-top fix. Per-fighter top/bottom numbers will be thin; use the `q_*` probabilities, not hard calls.
 - **Identity is good enough to start, not solved.** 75% of held-out fights right; the failures are ground mixing and the other fighter leaking into a corner through clinches. The confidence score ranks fights well but its threshold is soft (Needs Ansh, item 1). Clinch box-merging (above) is the shared root cause.
 - **Clip strata are a rough proxy.** "ground" leans on torso angle and wide boxes and "merged" also catches close-ups of one fighter. They only spread the sample.
@@ -125,8 +133,11 @@ Free Kaggle GPU used so far: about 38.1 hours in total (2026-10-26 and 27: masks
 - The first `pre-commit` run on a new machine downloads Go to build gitleaks, which takes a minute or two.
 
 ## Next
-1. Steps 6 and 7 of the Phase 3 plan: action detector (rules first, one VLM action job on free quota), then labeller C and the events tables.
-2. MLflow before the first real model fit (Phase 4).
+1. VLM actions: check the pilot (parse rate, time per clip), then the full run of 780 clips with both prompts on free quota, then import.
+2. Compare the rule actions and strikes with the VLM's swap-agreed answers; decide which actions the event tables may carry. Takedowns from rules are mostly wrong (1 in 4), so they likely need the VLM or a better ground-start signal.
+3. Strike rule round 2 if the VLM comparison points at a clear fix (fresh sample, thresholds set by reasoning first).
+4. Labeller C (a trained skeleton model) for states.
+5. MLflow before the first real model fit (Phase 4).
 
 **For the next GPU batch:** ft_2b1a88cfe9 is back in `fights.csv` (IMMAF's results put it in the adult 2019 European Middleweight bracket; its "junior" hit was the event banner). Not processed yet. Ansh: process it with the next batch, not on its own. `select_fights` picks it up automatically.
 
