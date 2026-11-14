@@ -193,6 +193,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_states.add_argument("--config", type=Path, default=Path("configs/kaggle_real.yaml"))
     p_states.add_argument("--out", type=Path, default=Path("data/states"))
+    p_events = sub.add_parser(
+        "events", help="actions, strikes and the per-fight event tables, from the states (laptop)"
+    )
+    p_events.add_argument("--config", type=Path, default=Path("configs/kaggle_real.yaml"))
+    p_events.add_argument("--states", type=Path, default=Path("data/states"))
+    p_events.add_argument("--out", type=Path, default=Path("data/events"))
     p_evs = sub.add_parser("eval-states", help="the state classifier against silver")
     p_evs.add_argument("--out", type=Path, default=Path("data/states"))
     p_purge = sub.add_parser("purge-fights", help="delete every local trace of some fights")
@@ -257,6 +263,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "states":
         return _states(args.config, args.out)
+    if args.command == "events":
+        return _events(args.config, args.states, args.out)
     if args.command == "eval-states":
         return _eval_states(args.out)
     if args.command == "purge-fights":
@@ -323,6 +331,51 @@ def _states(config: Path, out: Path) -> int:
     pred.to_parquet(out / "predictions.parquet", index=False)
     (out / "dawid_skene.json").write_text(json.dumps(summaries, indent=2))
     print(pred["pred"].value_counts().to_string())
+    return 0
+
+
+def _events(config: Path, states: Path, out: Path) -> int:
+    from cornerman.contracts.perception import usable_frames
+    from cornerman.events.actions import all_actions
+    from cornerman.events.table import fight_events
+    from cornerman.perception.strikes import fight_strikes
+    from cornerman.pipeline.stage import QuarantineError
+
+    p = load_settings(config).perception
+    derived = Path("data/derived")
+    pred = pd.read_parquet(states / "predictions.parquet")
+    moments = pd.read_parquet(states / "moments.parquet")
+    actions = all_actions(pred)
+    actions.to_parquet(states / "actions.parquet", index=False)
+    parts = [
+        fight_strikes(derived / str(fid), g.sort_values("t"), p).assign(fight_id=str(fid))
+        for fid, g in moments.groupby("fight_id")
+    ]
+    strikes = pd.concat(parts, ignore_index=True)
+    strikes.to_parquet(states / "strikes.parquet", index=False)
+    print(f"{len(actions)} actions ({actions['actor'].notna().sum()} with an actor), "
+          f"{len(strikes)} strikes")  # fmt: skip
+    fights = pd.read_csv("data/fights.csv").set_index("fight_id")
+    usable = usable_frames(derived)
+    out.mkdir(parents=True, exist_ok=True)
+    written = 0
+    for fid, g in pred.groupby("fight_id"):
+        fid = str(fid)
+        if fid not in usable or fid not in fights.index:
+            continue
+        corners = {"red": str(fights.loc[fid, "fighter_a_id"]),
+                   "blue": str(fights.loc[fid, "fighter_b_id"])}  # fmt: skip
+        try:
+            mine_a = actions[actions["fight_id"] == fid]
+            mine_s = strikes[strikes["fight_id"] == fid]
+            ev = fight_events(g, mine_a, mine_s, corners, usable[fid])
+        except QuarantineError as e:
+            print(f"{fid}: quarantined, {e}")
+            continue
+        if len(ev):
+            ev.to_parquet(out / f"{fid}.parquet", index=False)
+            written += 1
+    print(f"event tables for {written} fights in {out}")
     return 0
 
 
