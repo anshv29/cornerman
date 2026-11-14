@@ -82,12 +82,15 @@ def _known(g: pd.DataFrame, rows: range, states: tuple[str, ...]) -> pd.Series:
 
 
 def _majority(calls: pd.Series) -> tuple[str | None, float]:
-    """The colour named by most calls ("red-top" -> "red"), and its share."""
+    """The colour named by most calls ("red-top" -> "red"), and its share. A tie names
+    nobody (value_counts would break it by order, which would favour a colour)."""
     if calls.empty:
         return None, float("nan")
     colour = calls.str.split("-").str[0]
-    counts = colour.value_counts()
-    return str(counts.index[0]), float(counts.iloc[0] / counts.sum())
+    r, b = int((colour == "red").sum()), int((colour == "blue").sum())
+    if r == b:
+        return None, 0.5
+    return ("red", r / (r + b)) if r > b else ("blue", b / (r + b))
 
 
 def _faster(g: pd.DataFrame, rows: range) -> str | None:
@@ -95,9 +98,9 @@ def _faster(g: pd.DataFrame, rows: range) -> str | None:
     r, b = float(sub["red_speed"].mean()), float(sub["blue_speed"].mean())
     if np.isnan(r) or np.isnan(b):
         return None
-    if r >= FASTER * b:
+    if r >= FASTER * b and r > b:  # r > b: two still fighters (0 and 0) name nobody
         return "red"
-    if b >= FASTER * r:
+    if b >= FASTER * r and b > r:
         return "blue"
     return None
 

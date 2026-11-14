@@ -42,6 +42,7 @@ from cornerman.config import PerceptionConfig
 from cornerman.contracts.perception import fighter_boxes, fighting_table
 from cornerman.gold.rules import CLINCH_IOU, body, frame_label, gap_iou, is_down
 from cornerman.perception.fence import cage_call, feet, fence_distance, real_edges
+from cornerman.weak_labels.labellers import swap_colours as swap_name
 
 A_LABELS = ("standing", "clinch", "ground-red-top", "ground-blue-top", "ground-even")
 M_LABELS = (
@@ -197,7 +198,7 @@ def fight_moments(fight_dir: Path, p: PerceptionConfig) -> pd.DataFrame:
             r.update(
                 gap=gap,
                 iou=iou,
-                height_ratio=rh / max(bh, 1.0),
+                height_ratio=float(np.log(max(rh, 1.0) / max(bh, 1.0))),
                 red_aspect=rh / max(red[3] - red[1], 1.0),
                 blue_aspect=bh / max(blue[3] - blue[1], 1.0),
                 dx=((red[1] + red[3]) - (blue[1] + blue[3])) / 2 / ((rh + bh) / 2),
@@ -341,7 +342,34 @@ FEATURES = [
     "blue_fence",
 ]
 """Model inputs. Red/blue features are missing outside live shots, skeleton features
-in contact, mask features where the masks stage hasn't run."""
+in contact, mask features where the masks stage hasn't run. `height_ratio` is the log
+of red's box height over blue's, so that swapping the colours only flips its sign."""
+
+PAIRED = [("red_speed", "blue_speed"), ("red_aspect", "blue_aspect"), ("red_angle", "blue_angle"),
+          ("red_hip_ankle", "blue_hip_ankle"), ("red_fence", "blue_fence")]  # fmt: skip
+"""Features measured once per fighter: swapping the colours swaps each pair."""
+SIGNED = ["height_ratio", "dx", "dy", "mask_dy", "mask_top", "hip_diff"]
+"""Features measured from red's side (red minus blue, or +1 for red on top): swapping the
+colours flips their sign. Every other feature doesn't name a colour."""
+LABELLERS = ("A", "M", "G", "B")
+
+
+def swap_colours(moments: pd.DataFrame) -> pd.DataFrame:
+    """The same moments as if red and blue had been assigned the other way round: per-fighter
+    features swapped, signed ones negated, labels renamed. Applying it twice gives the
+    input back exactly, which the colour-symmetry tests and the classifier rely on."""
+    out = moments.copy()
+    for end in ("", "_w"):  # _w: the same feature averaged over +-1 s (events/states.py)
+        for a, b in PAIRED:
+            if a + end in out and b + end in out:
+                out[a + end], out[b + end] = moments[b + end], moments[a + end]
+        for c in SIGNED:
+            if c + end in out:
+                out[c + end] = -moments[c + end]
+    for c in LABELLERS:
+        if c in out:
+            out[c] = [swap_name(x) if isinstance(x, str) else x for x in moments[c]]
+    return out
 
 
 def all_moments(derived: Path, fights: list[str], p: PerceptionConfig) -> pd.DataFrame:

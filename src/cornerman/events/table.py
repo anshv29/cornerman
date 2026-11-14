@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 
 from cornerman.contracts.events import validate_events
+from cornerman.events.states import row_sum
 from cornerman.weak_labels.labellers import FAMILY, PAIR_STATES, fighter_states
 
 MOMENT_S = 0.5
@@ -39,7 +40,7 @@ def _family_q(pred: pd.DataFrame) -> np.ndarray:
     for f in ("standing", "clinch", "ground"):
         cols = [f"q_{p}" for p in PAIR_STATES if FAMILY[p] == f]
         rows = (pred["pred_family"] == f).to_numpy()
-        out[rows] = pred.loc[rows, cols].sum(axis=1).to_numpy(float)
+        out[rows] = row_sum(pred.loc[rows, cols].to_numpy(float))
     return out
 
 

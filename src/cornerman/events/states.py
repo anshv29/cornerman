@@ -39,6 +39,15 @@ fighter reached 0.7, and those leaned red 2 to 1 while the confident ones were e
 (DECISIONS.md, 2026-11-14). Clinch direction is never reported for now (Ansh,
 2026-11-14): the controller rests on one unconfirmed VLM answer.
 
+The classifier can't prefer a colour (Ansh, 2026-11-14: swapping red and blue in the
+inputs must flip every output exactly). A tree model isn't symmetric on its own: it
+learns from whichever colour the labels lean to, and splits break ties by column
+order. So it is trained on every moment twice, as it is and with the colours swapped
+(`swap_colours`), in one fixed row order, and its answer is the average of the answer
+for the moment and the mirrored answer for the swapped moment. Sums over a family's
+states are taken in an order that doesn't depend on the colours, so even rounding is
+the same both ways. tests/property/test_colour_swap.py checks the whole chain.
+
 Balanced training makes the probabilities say clinch and ground too often. Anything
 per fighter uses `q_*` instead of `p_*`: the family probabilities moved from the
 training mix back to the family rates over all fighting time of the training fights
@@ -46,6 +55,7 @@ training mix back to the family rates over all fighting time of the training fig
 stays on the balanced probabilities, which find clinch.
 """
 
+import math
 from typing import Any
 
 import numpy as np
@@ -54,11 +64,12 @@ from sklearn.ensemble import (  # pyright: ignore[reportMissingTypeStubs]
     HistGradientBoostingClassifier,  # pyright: ignore[reportUnknownVariableType]
 )
 
-from cornerman.events.moments import FEATURES
+from cornerman.events.moments import FEATURES, swap_colours
 from cornerman.weak_labels.labellers import (
     FAMILIES,
     FAMILY,
     PAIR_STATES,
+    SWAP,
     family_votes,
     fit_family,
     soft_labels,
@@ -121,13 +132,29 @@ def family_balance(soft: np.ndarray) -> np.ndarray:
     (1 / number of families) / that family's share of the soft-label mass. Directions
     inside a family keep their relative mass."""
     mass = soft.sum(0)
-    total = mass.sum()
+    mass = mass + mass[SWAP]  # the same whichever colour the labels lean to
+    total = math.fsum(mass)
     out = np.ones(len(PAIR_STATES))
     for f in FAMILIES:
         idx = [PAIR_STATES.index(p) for p in PAIR_STATES if FAMILY[p] == f]
-        share = mass[idx].sum() / total if total > 0 else 0.0
+        share = math.fsum(mass[idx]) / total if total > 0 else 0.0
         out[idx] = (1 / len(FAMILIES)) / share if share > 0 else 1.0
     return out
+
+
+def row_sum(a: np.ndarray) -> np.ndarray:
+    """Sum of each row, added up in sorted order so that it doesn't depend on the column
+    order (red before blue or after): the same bits either way."""
+    return np.sort(a, axis=1).sum(1)
+
+
+def family_probs(probs: np.ndarray) -> np.ndarray:
+    """(n, 3) probability of each family: its states' probabilities summed."""
+    return np.stack([row_sum(probs[:, idx]) for idx in _members()], axis=1)
+
+
+def _members() -> list[list[int]]:
+    return [[PAIR_STATES.index(p) for p in PAIR_STATES if FAMILY[p] == f] for f in FAMILIES]
 
 
 def family_mass(weights: np.ndarray, classes: np.ndarray) -> np.ndarray:
@@ -148,7 +175,7 @@ def prior_correct(probs: np.ndarray, trained: np.ndarray, rates: np.ndarray) -> 
         f = FAMILIES.index(FAMILY[p])
         scale[k] = rates[f] / trained[f] if trained[f] > 0 else 0.0
     out = probs * scale
-    return out / np.clip(out.sum(1, keepdims=True), 1e-12, None)
+    return out / np.clip(row_sum(out)[:, None], 1e-12, None)
 
 
 def train(moments: pd.DataFrame, seed: int, balanced: bool = True) -> tuple[Any, dict[str, object]]:
@@ -162,10 +189,17 @@ def train(moments: pd.DataFrame, seed: int, balanced: bool = True) -> tuple[Any,
     keep = fam.voted
     x = moments.loc[keep, feature_columns()].to_numpy(float)
     s = soft[keep]
-    rows, cls = np.nonzero(s >= MIN_WEIGHT)
+    # Every moment twice, as it is and with the colours swapped, in a fixed row order:
+    # the training set is then the same rows whichever way round the colours came in.
+    x2 = np.vstack([x, swap_colours(moments.loc[keep]).loc[:, feature_columns()].to_numpy(float)])
+    s2 = np.vstack([s, s[:, SWAP]])
+    rows, cls = np.nonzero(s2 >= MIN_WEIGHT)
+    w = s2[rows, cls] * (family_balance(s)[cls] if balanced else 1.0)
+    xr = x2[rows]
+    order = np.lexsort([w, cls, *xr.T[::-1]])
+    xr, cls, w = xr[order], cls[order], w[order]
     model = HistGradientBoostingClassifier(max_iter=200, learning_rate=0.1, random_state=seed)
-    w = s[rows, cls] * (family_balance(s)[cls] if balanced else 1.0)
-    model.fit(x[rows], cls, sample_weight=w)  # pyright: ignore[reportUnknownMemberType]
+    model.fit(xr, cls, sample_weight=w)  # pyright: ignore[reportUnknownMemberType]
     summary: dict[str, object] = {
         "prior": dict(zip(FAMILIES, fam.prior.round(3).tolist(), strict=True)),
         "rules_confusion": fam.confusion[0].round(3).tolist(),
@@ -177,13 +211,17 @@ def train(moments: pd.DataFrame, seed: int, balanced: bool = True) -> tuple[Any,
     return model, summary
 
 
-def predict_proba(model: Any, moments: pd.DataFrame) -> np.ndarray:
-    """(n, 8) probabilities over PAIR_STATES (classes never seen in training get 0)."""
+def _raw_proba(model: Any, moments: pd.DataFrame) -> np.ndarray:
     p = np.asarray(model.predict_proba(moments[feature_columns()].to_numpy(float)), float)
     out = np.zeros((len(moments), len(PAIR_STATES)))
-    classes = np.asarray(model.classes_, int)
-    out[:, classes] = p
+    out[:, np.asarray(model.classes_, int)] = p
     return out
+
+
+def predict_proba(model: Any, moments: pd.DataFrame) -> np.ndarray:
+    """(n, 8) probabilities over PAIR_STATES (classes never seen in training get 0): the
+    average of the model's answer and its mirrored answer for the colour-swapped moments."""
+    return (_raw_proba(model, moments) + _raw_proba(model, swap_colours(moments))[:, SWAP]) / 2
 
 
 def transitions(k: int, stay: float, forbidden: list[tuple[int, int]] | None = None) -> np.ndarray:
@@ -259,8 +297,8 @@ def smooth(
     each run of one family. Also how sure the direction is: the forward-backward
     marginal of the chosen state within its family run (1 for a family with one state).
     `moments` must be sorted by fight and time."""
-    members = [[PAIR_STATES.index(p) for p in PAIR_STATES if FAMILY[p] == f] for f in FAMILIES]
-    fam_probs = np.stack([probs[:, idx].sum(1) for idx in members], axis=1)
+    members = _members()
+    fam_probs = family_probs(probs)
     fam_trans = transitions(len(FAMILIES), stay)
     out = np.zeros(len(moments), int)
     sure = np.ones(len(moments))
@@ -277,7 +315,7 @@ def smooth(
                 [(names.index("red-top"), names.index("blue-top"))] if "red-top" in names else []
             )
             sub = probs[i:j][:, idx]
-            sub = sub / np.clip(sub.sum(1, keepdims=True), 1e-12, None)
+            sub = sub / np.clip(row_sum(sub)[:, None], 1e-12, None)
             trans = transitions(len(idx), stay, forbid)
             path = viterbi(sub, trans)
             out[i:j] = np.asarray(idx)[path]
@@ -312,9 +350,7 @@ def cross_validate(
         for k, pair in enumerate(PAIR_STATES):
             part[f"p_{pair}"] = probs[:, k]
             part[f"q_{pair}"] = corrected[:, k]
-        members = [[PAIR_STATES.index(p) for p in PAIR_STATES if FAMILY[p] == f] for f in FAMILIES]
-        fam_p = np.stack([probs[:, idx].sum(1) for idx in members], axis=1)
-        part["raw_family"] = np.array(FAMILIES)[fam_p.argmax(1)]
+        part["raw_family"] = np.array(FAMILIES)[family_probs(probs).argmax(1)]
         path, sure = smooth(part, probs, stay, max_gap_s)
         part["pred"] = np.array(PAIR_STATES)[path]
         part["direction_sure"] = sure

@@ -36,6 +36,7 @@ simulated data. So:
 The soft label is P(family) x P(direction | family).
 """
 
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -66,6 +67,17 @@ FAMILY = {
     "blue-top": "ground",
     "scramble": "ground",
 }
+
+
+def swap_colours(name: str) -> str:
+    """The same label with red and blue swapped ("ground-red-top" -> "ground-blue-top")."""
+    return name.replace("red", "\0").replace("blue", "red").replace("\0", "blue")
+
+
+SWAP = [PAIR_STATES.index(swap_colours(p)) for p in PAIR_STATES]
+"""Pair-state order with every red state and its blue mirror swapped: `probs[:, SWAP]` is
+what the same moments give with the colours swapped."""
+
 DIRECTIONS = {
     "standing": ("neutral", "red-pressuring", "blue-pressuring"),
     "clinch": ("red-clinch", "blue-clinch"),
@@ -279,7 +291,8 @@ def direction(row: Mapping[Any, object]) -> dict[str, dict[str, float]]:
         elif vote in ("ground-even", "scramble"):
             _vote(out["ground"], "scramble", t["even"] if vote == "ground-even" else trust, gr)
     for f in out:
-        total = sum(out[f].values())
+        # fsum is exact, so the total doesn't depend on the order red and blue come in.
+        total = math.fsum(out[f].values())
         out[f] = {d: v / total for d, v in out[f].items()}
     return out
 
