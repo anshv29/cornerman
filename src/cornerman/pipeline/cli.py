@@ -326,8 +326,13 @@ def _states(config: Path, out: Path) -> int:
 def _eval_states(out: Path) -> int:
     from cornerman.eval.states import report
 
+    folds = json.loads((out / "dawid_skene.json").read_text())
+    rates = {
+        f: round(sum(s["rates"][i] for s in folds) / len(folds), 3)
+        for i, f in enumerate(("standing", "clinch", "ground"))
+    } if all("rates" in s for s in folds) else None  # fmt: skip
     r = report(pd.read_parquet(out / "predictions.parquet"),
-               pd.read_parquet(Path("data/gold") / "silver.parquet"))  # fmt: skip
+               pd.read_parquet(Path("data/gold") / "silver.parquet"), rates)  # fmt: skip
     for k, v in r.items():
         print(f"== {k}")
         print(v.to_string() if isinstance(v, pd.DataFrame) else json.dumps(v, indent=1))

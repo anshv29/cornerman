@@ -143,15 +143,46 @@ def label_free(pred: pd.DataFrame) -> dict[str, float]:
             "compatibility_violation_rate": 0.0}  # fmt: skip
 
 
-def report(pred: pd.DataFrame, silver: pd.DataFrame) -> dict[str, object]:
-    """Every number in the Phase 3 table, as plain data."""
+def colour_balance(pred: pd.DataFrame) -> dict[str, dict[str, int]]:
+    """Live moments per directional pair state: all calls, and only the known ones. The
+    labellers' own directional votes are the reference (they lean slightly blue)."""
+    live = pred[~pred["family_only"].astype(bool)]
+    known = live[live["direction_known"].astype(bool)]
+    states = ["red-top", "blue-top", "red-pressuring", "blue-pressuring"]
+    return {
+        "all_calls": {s: int((live["pred"] == s).sum()) for s in states},
+        "known": {s: int((known["pred"] == s).sum()) for s in states},
+    }
+
+
+def family_shares(pred: pd.DataFrame, prefix: str) -> dict[str, float]:
+    """Mean family probability over all moments, from `prefix` columns (p_ or q_)."""
+    return {
+        f: round(float(sum(pred[f"{prefix}{p}"].mean() for p in PAIR_STATES if FAMILY[p] == f)), 3)
+        for f in ("standing", "clinch", "ground")
+    }
+
+
+def report(
+    pred: pd.DataFrame, silver: pd.DataFrame, rates: dict[str, float] | None = None
+) -> dict[str, object]:
+    """Every number in the Phase 3 table, as plain data. `rates`: the family rates the
+    corrected probabilities aim at (mean over folds), shown next to them."""
     counts = pred["pred"].value_counts()
     majority = str(counts.index[0]) if len(counts) else PAIR_STATES[0]
     sil = with_baselines(truth_moments(pred, silver, "silver"), majority)
     low = with_baselines(truth_moments(pred, silver, "prompts_only"), majority)
+    known = sil[sil["direction_known"].astype(bool)]
     out: dict[str, object] = {
         "silver_clips": int(sil["clip_id"].nunique()),
         "silver": {c: accuracy(sil, c) for c in ("pred", "majority", "rules")},
+        "silver_direction_known_share": float(len(known) / max(1, len(sil))),
+        "silver_direction_known": {c: accuracy(known, c) for c in ("pred", "majority", "rules")},
+        "silver_per_state_direction_known": per_state(known["truth"], known["pred"]),
+        "colour_balance": colour_balance(pred),
+        "family_share_balanced_p": family_shares(pred, "p_"),
+        "family_share_corrected_q": family_shares(pred, "q_"),
+        "family_label_rates": rates or {},
         "silver_by_stratum": {str(k): accuracy(g, "pred") for k, g in sil.groupby("stratum")},
         "silver_per_state": per_state(sil["truth"], sil["pred"]),
         "silver_confusion": pd.crosstab(sil["truth"], sil["pred"]),
