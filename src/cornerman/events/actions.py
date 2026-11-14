@@ -7,7 +7,26 @@ ground turning into standing or clinch, a sweep is the top fighter changing, a
 reset is a pressured fighter getting back to neutral. So this labeller reads
 actions off the smoothed states instead of the video.
 
-Two guards, both set by reasoning before looking at any result:
+A takedown needs more than the change of state (Ansh, 2026-11-14, after the first
+blind check found 4 of 17 rule takedowns real; most were the classifier starting a
+ground run late or calling clinch at the fence ground):
+- standing held for LOOK_S right before, ground held for LOOK_S right after, with
+  nothing in between (at most MAX_GAP_S);
+- stable: the classifier's family probability before smoothing (the corrected `q_*`,
+  which match the real family rates) averages at least STABLE over each of the two
+  windows. First written with the balanced `p_*`, which put standing at 0.38 on
+  average before a change, since balanced training spreads every moment toward a
+  third per family: the wrong scale for "how sure", so changed before any check;
+- a real drop in height: the fighters' height in the image (`pair_h`, top of the
+  highest box to the bottom of the lowest) after is at most DROP times what it was
+  before, both measured inside the same shot (a cut or a zoom across shots would fake
+  one). Hip keypoints would be the direct measure, but skeletons aren't trusted while
+  the fighters touch (Ansh, 2026-10-27), and a takedown is all touching.
+So a clinch going to the ground isn't a takedown here for now, and takedowns in shots
+where the boxes aren't both seen are missed. Precision first: these numbers end up
+in per-fighter counts once backed.
+
+Two guards on every change, both set by reasoning before looking at any result:
 - A position counts only if held for HOLD_S (2 s). Clinch and ground flip back
   and forth between the classifier's runs (489 changes between them over 406
   minutes, against 123 between standing and clinch); a 1 s blip is more likely a
@@ -38,7 +57,9 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from cornerman.events.states import row_sum
 from cornerman.taxonomy import Action
+from cornerman.weak_labels.labellers import FAMILY, PAIR_STATES
 
 HOLD_S = 2.0
 BRIDGE_S = 3.0
@@ -46,6 +67,15 @@ LOOK_S = 2.0
 FASTER = 1.5
 MAX_GAP_S = 1.0
 """Moments further apart than this (0.5 s grid) break a run, as in events/states.py."""
+STABLE = 0.5
+"""A takedown's standing and ground windows need this mean family probability: most of
+the classifier's mass, not just the most likely family."""
+DROP = 0.7
+"""A takedown's height after over before. Set by reasoning: standing fighters' boxes span
+a body height; two fighters on the ground make a pile about half that, a top fighter
+posturing up perhaps 0.7 of it. A clinch on the feet stays near 1."""
+MIN_HEIGHTS = 2
+"""Height readings needed on each side of a takedown (about 1 s at 0.5 s)."""
 
 COLUMNS = ["fight_id", "t", "actor", "action", "rule", "confidence"]
 Add = Callable[[int, str | None, Action, str, float], None]
@@ -105,6 +135,38 @@ def _faster(g: pd.DataFrame, rows: range) -> str | None:
     return None
 
 
+def _family_p(g: pd.DataFrame, rows: range, family: str) -> float:
+    """Mean corrected probability of `family` over `rows`, before smoothing (`q_*`)."""
+    cols = [f"q_{p}" for p in PAIR_STATES if FAMILY[p] == family]
+    sub = g.iloc[list(rows)]
+    return float(row_sum(sub[cols].to_numpy(float)).mean()) if len(sub) else 0.0
+
+
+def _height_drop(g: pd.DataFrame, before: range, after: range, at: int) -> float:
+    """The fighters' height after over before, inside the shot of row `at` (nan if either
+    side has under MIN_HEIGHTS readings)."""
+    shot = g["shot_id"].iloc[at]
+
+    def heights(rows: range) -> pd.Series:
+        sub = g.iloc[list(rows)]
+        return sub.loc[sub["shot_id"] == shot, "pair_h"].dropna()
+
+    h0, h1 = heights(before), heights(after)
+    if len(h0) < MIN_HEIGHTS or len(h1) < MIN_HEIGHTS or h0.median() <= 0:
+        return float("nan")
+    return float(h1.median() / h0.median())
+
+
+def _takedown(g: pd.DataFrame, prev: Held, nxt: Held, before: range, after: range) -> bool:
+    """Standing held, then ground held, stable on both sides, with a real height drop."""
+    t = g["t"].to_numpy(float)
+    if prev.family != "standing" or t[nxt.start] - t[prev.end - 1] > MAX_GAP_S:
+        return False
+    if _family_p(g, before, "standing") < STABLE or _family_p(g, after, "ground") < STABLE:
+        return False
+    return _height_drop(g, before, after, nxt.start) <= DROP  # nan fails
+
+
 def _window(g: pd.DataFrame, at: int, seconds: float, forward: bool) -> range:
     """Rows within `seconds` after (forward) or before row `at`, inside the fight."""
     t = g["t"].to_numpy(float)
@@ -140,8 +202,9 @@ def fight_actions(g: pd.DataFrame) -> pd.DataFrame:
         before = _window(g, prev.end, LOOK_S, forward=False)
         after = _window(g, nxt.start, LOOK_S, forward=True)
         if nxt.family == "ground":
-            actor, share = _majority(_known(g, after, ("red-top", "blue-top")))
-            add(i, actor, Action.SHOOT_TAKEDOWN, f"{prev.family}-to-ground", share)
+            if _takedown(g, prev, nxt, before, after):
+                actor, share = _majority(_known(g, after, ("red-top", "blue-top")))
+                add(i, actor, Action.SHOOT_TAKEDOWN, "standing-to-ground", share)
         elif prev.family == "ground":
             top, share = _majority(_known(g, before, ("red-top", "blue-top")))
             actor = {"red": "blue", "blue": "red"}.get(top or "")

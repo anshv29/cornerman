@@ -15,9 +15,11 @@ What goes in, and what is left out:
   used only at family level (standing, clinch, ground).
 - confidence: the corrected probability of the predicted family (q_*, which matches
   the label rates) times how sure the direction is.
-- action: a positional action with a named actor (takedown, stand-up, sweep, reset,
-  clinch entry or exit) at the moment it starts, else a strike thrown in the moment's
-  0.5 s, else nothing. Actions without an actor stay in the actions table only.
+- action: a strike thrown in the moment's 0.5 s, else nothing. Positional actions
+  (takedown, stand-up, sweep, reset, clinch entry or exit) stay in the actions table
+  and out of anything per fighter until the VLM action labels back them up (Ansh,
+  2026-11-14: the first takedown check found 1 in 4 right). PER_FIGHTER_ACTIONS lists
+  the ones let through; a positional action with an actor overrides a strike.
 - landed: empty; landed or missed is Tier 2. momentum: false; not modelled yet.
 - fighter: registry IDs (F0001 ...), never names. Red is the fighter listed first in
   the title (identity.corner_fighters).
@@ -30,6 +32,8 @@ from cornerman.contracts.events import validate_events
 from cornerman.events.states import row_sum
 from cornerman.weak_labels.labellers import FAMILY, PAIR_STATES, fighter_states
 
+PER_FIGHTER_ACTIONS: frozenset[str] = frozenset()
+"""Positional actions backed well enough to count per fighter. None yet."""
 MOMENT_S = 0.5
 """The moments' grid: an action belongs to the moment at or just before it."""
 
@@ -72,7 +76,9 @@ def fight_events(
     for i, c in zip(_moment_of(times, s["t"].to_numpy(float)), s["actor"], strict=True):
         if i >= 0:
             act[str(c)][int(i)] = "strike"
-    a = actions[actions["actor"].isin(["red", "blue"])]
+    a = actions[
+        actions["actor"].isin(["red", "blue"]) & actions["action"].isin(PER_FIGHTER_ACTIONS)
+    ]
     for i, c, name in zip(_moment_of(times, a["t"].to_numpy(float)), a["actor"], a["action"],
                           strict=True):  # fmt: skip
         if i >= 0:

@@ -190,6 +190,12 @@ def fight_moments(fight_dir: Path, p: PerceptionConfig) -> pd.DataFrame:
             "red_speed": speed["red"][k] if is_live else nan,
             "blue_speed": speed["blue"][k] if is_live else nan,
         }
+        present = [b for b in (red, blue) if b is not None] if is_live else []
+        if present:
+            # How tall the fighters stand in the image: top of the highest box to the bottom
+            # of the lowest, in frame heights. Not a model input; the takedown rule
+            # (events/actions.py) looks for it to drop.
+            r["pair_h"] = (max(b[4] for b in present) - min(b[2] for b in present)) / height
         gap = iou = nan
         if both:
             assert red is not None and blue is not None
@@ -290,6 +296,8 @@ def fight_moments(fight_dir: Path, p: PerceptionConfig) -> pd.DataFrame:
         if col not in out:
             out[col] = nan
     out[FEATURES] = out[FEATURES].astype(float)
+    if "pair_h" not in out:
+        out["pair_h"] = nan
     for col in ("A", "M", "G"):
         if col not in out:
             out[col] = None

@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
+import pytest
 
+from cornerman.events import table
 from cornerman.events.table import fight_events
 from cornerman.weak_labels.labellers import FAMILY, PAIR_STATES
 
@@ -24,7 +26,8 @@ def _pred(states: list[str]) -> pd.DataFrame:
     return df
 
 
-def test_events_from_states_actions_and_strikes() -> None:
+def test_events_from_states_actions_and_strikes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(table, "PER_FIGHTER_ACTIONS", frozenset({"shoot-takedown"}))
     pred = _pred(["neutral", "neutral", "blue-top", "blue-top"])
     actions = pd.DataFrame({"t": [1.0, 1.0], "actor": ["blue", None],
                             "action": ["shoot-takedown", "stand-up"]})  # fmt: skip
@@ -46,3 +49,11 @@ def test_only_usable_live_moments() -> None:
                       pd.DataFrame(columns=["t", "actor"]), {"red": "F0001", "blue": "F0002"},
                       usable={5, 10})  # fmt: skip
     assert sorted(set(ev["t"])) == [0.5, 1.0]
+
+
+def test_positional_actions_stay_out_until_backed() -> None:
+    pred = _pred(["neutral", "neutral", "blue-top", "blue-top"])
+    actions = pd.DataFrame({"t": [1.0], "actor": ["blue"], "action": ["shoot-takedown"]})
+    ev = fight_events(pred, actions, pd.DataFrame(columns=["t", "actor"]),
+                      {"red": "F0001", "blue": "F0002"}, usable=set(pred["frame"]))  # fmt: skip
+    assert ev["action"].isna().all()
