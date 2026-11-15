@@ -26,5 +26,6 @@ Cap: $50 USD total for GPU time and hosted APIs. Ask Ansh before spending anythi
 | 2026-10-26 | Arena stage batch 3 (17 fights), about 6.1 hours of free CPU sessions | Kaggle | 0.00 | 0.00 |
 | 2026-10-27 | Masks stage batch 3 (17 fights), about 0.8 hours of free T4 x2 quota (one upload failed with a 499 before it, nothing created) | Kaggle | 0.00 | 0.00 |
 | 2026-11-14 | VLM actions pilot, 20 clips with both action prompts, about 0.36 hours of free T4 x2 quota | Kaggle | 0.00 | 0.00 |
+| 2026-11-14 | VLM actions run, 628 of 780 clips with both action prompts before the 11-hour budget ran out, about 11 hours of free T4 x2 quota | Kaggle | 0.00 | 0.00 |
 
 Current total: **$0.00**

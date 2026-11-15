@@ -12,7 +12,7 @@
 
 ## Current spend
 $0.00 of the $50 cap. Every dollar needs Ansh's OK before it's spent. See `costs.md`.
-Free Kaggle GPU used so far: about 38.5 hours in total, plus the VLM actions run in progress (2026-11-14: actions pilot 0.36 h) (2026-10-26 and 27: masks batches 1 to 3, about 2.6 h; arena batches 2 and 3 on CPU sessions, about 14.4 h, no GPU quota) (2026-10-26: about 0.3 h for the tangled-pose test, 0.2 h for the masks smoke run). Kaggle CPU sessions (no GPU quota) run the arena stage. On 2026-10-19 and 10-20: about 3.5 h for the last 24 fights, about 1.7 h of VLM pilots, 0.6 h for a failed full run (out of memory), 3.5 h for the full VLM run. On 2026-10-25: 8.7 h for the 1,000-clip VLM run and 3.4 h for the clinch swap run.
+Free Kaggle GPU used so far: about 38.5 hours in total, about 49.5 hours with the 2026-11-14 VLM actions pilot (0.36 h) and run (about 11 h) (2026-10-26 and 27: masks batches 1 to 3, about 2.6 h; arena batches 2 and 3 on CPU sessions, about 14.4 h, no GPU quota) (2026-10-26: about 0.3 h for the tangled-pose test, 0.2 h for the masks smoke run). Kaggle CPU sessions (no GPU quota) run the arena stage. On 2026-10-19 and 10-20: about 3.5 h for the last 24 fights, about 1.7 h of VLM pilots, 0.6 h for a failed full run (out of memory), 3.5 h for the full VLM run. On 2026-10-25: 8.7 h for the 1,000-clip VLM run and 3.4 h for the clinch swap run.
 
 ## Done
 
@@ -141,7 +141,7 @@ Free Kaggle GPU used so far: about 38.5 hours in total, plus the VLM actions run
 
 ## Next
 0. **Report to Ansh, waiting for his go before moving past Step 7** (he asked for the audit report first). Proposed fixes are in AUDIT.md section 5.
-1. VLM actions: the full run (780 clips, both prompts) is running on Kaggle since 2026-11-14 (about 6 h at 27 s per answer). When it ends: `uv run cornerman gold-vlm import`, check parse rate, log the hours in costs.md. The pilot gave both fighters the same actions in 21 of 34 live answers, so watch for copying.
+1. VLM actions: the run finished its 11-hour budget on 2026-11-15 with 628 of 780 clips (1,256 answers, no errors, 34 s per answer), imported as `data/gold/vlm/labels_008.jsonl`. 152 clips are left (about 1.5 h of free quota). It gives both fighters the same actions in 725 of 1,075 live answers (67%), so copying is likely; check that before comparing with the rules or running the rest.
 2. Compare the rule actions and strikes with the VLM's swap-agreed answers; decide which actions the event tables may carry. Takedowns from rules are mostly wrong (1 in 4), so they likely need the VLM or a better ground-start signal.
 3. Strike rule round 2 if the VLM comparison points at a clear fix (fresh sample, thresholds set by reasoning first).
 4. Labeller C (a trained skeleton model) for states.
